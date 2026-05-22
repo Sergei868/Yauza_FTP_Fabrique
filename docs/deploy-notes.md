@@ -541,3 +541,20 @@
   - watcher processed `MirrorLegacyAuto/LEGACY-AUTO.jpg`
   - Yandex Disk API confirms file exists at:
     - `disk:/Yauza_FTP_Mirror/MirrorLegacyAuto/LEGACY-AUTO.jpg`
+
+## 2026-05-22 — Safety backups before UI/UX phase
+
+### Local machine backups
+
+- Project snapshot archive created:
+  - `/Users/sergeyotroshko/Projects/yauza-photofactory-backups/yauza-photofactory-20260522-194231.tar.gz`
+- Full git-history backup created:
+  - `/Users/sergeyotroshko/Projects/yauza-photofactory-backups/yauza-photofactory-20260522-194425.bundle`
+
+### VPS backups
+
+- Runtime backup archive created:
+  - `/opt/yauza-backups/yauza-runtime-20260522-164439.tar.gz`
+- Archive includes:
+  - `/etc/yauza/config.yaml`
+  - PostgreSQL dump of database `photofactory`
