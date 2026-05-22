@@ -27,6 +27,7 @@ class BatchPhotoItem(BaseModel):
     size_bytes: int
     original_path: str
     image_url: str
+    thumbnail_url: str
 
 
 class BatchDetail(BaseModel):
@@ -103,6 +104,16 @@ class YandexDiskAutoModeRequest(BaseModel):
 
 class YandexDiskAutoModeResponse(BaseModel):
     enabled: bool
+
+
+class IncomingPhotographerItem(BaseModel):
+    folder_name: str
+    file_count: int
+
+
+class BatchCleanupResponse(BaseModel):
+    status: str
+    updated: int
 
 
 class PushSubscriptionKeys(BaseModel):

@@ -66,18 +66,30 @@ def create_batch_with_photos(
     return batch
 
 
-def list_recent_batches(session: Session, limit: int = 100) -> list[Batch]:
-    query = (
-        select(Batch)
-        .order_by(Batch.created_at.desc())
-        .limit(limit)
-    )
+def list_recent_batches(
+    session: Session,
+    limit: int = 100,
+    include_downloaded: bool = False,
+) -> list[Batch]:
+    query = select(Batch)
+    if not include_downloaded:
+        query = query.where(Batch.status != "downloaded")
+    query = query.order_by(Batch.created_at.desc()).limit(limit)
     return list(session.execute(query).scalars())
 
 
 def get_batch_by_id(session: Session, batch_id: str) -> Batch | None:
     query = select(Batch).where(Batch.id == batch_id)
     return session.execute(query).scalar_one_or_none()
+
+
+def mark_batch_downloaded(session: Session, batch_id: str) -> bool:
+    batch = get_batch_by_id(session, batch_id)
+    if batch is None:
+        return False
+    batch.status = "downloaded"
+    session.flush()
+    return True
 
 
 def get_batch_by_key(session: Session, batch_key: str) -> Batch | None:

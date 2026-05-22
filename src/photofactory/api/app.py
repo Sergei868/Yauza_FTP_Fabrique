@@ -9,15 +9,18 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import FileResponse
+from PIL import Image, ImageOps
 from starlette.background import BackgroundTask
 
 from photofactory.api.auth import create_access_token, require_auth
 from photofactory.batches import build_archive_name, build_batch_zip
 from photofactory.api.schemas import (
+    BatchCleanupResponse,
     BatchDetail,
     BatchListItem,
     BatchPhotoItem,
     HealthResponse,
+    IncomingPhotographerItem,
     NotificationMarkReadRequest,
     NotificationMarkReadResponse,
     NotificationItem,
@@ -43,6 +46,7 @@ from photofactory.db.repository import (
     deactivate_push_subscription,
     get_photographer_by_id,
     get_app_setting,
+    mark_batch_downloaded,
     mark_all_notifications_read,
     list_recent_notifications,
     list_recent_batches,
@@ -53,11 +57,36 @@ from photofactory.notifications.pwa import PwaNotifier
 from photofactory.storage.yandex_disk import YandexDiskUploader
 
 STATIC_DIR = Path(__file__).parent / "static"
+THUMBNAIL_SIZE = 320
+THUMBNAIL_QUALITY = 72
 
 
 def create_app(config: AppConfig) -> FastAPI:
     session_factory = build_session_factory(config)
     app = FastAPI(title="Yauza Photofactory API", version="0.1.0")
+    previews_root = config.paths.originals.parent / "previews"
+    try:
+        previews_root.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        previews_root = Path("/tmp/yauza-previews")
+        previews_root.mkdir(parents=True, exist_ok=True)
+
+    def ensure_thumbnail(source_path: Path, photo_id: str) -> Path:
+        target = previews_root / f"{photo_id}.jpg"
+        regenerate = True
+        if target.exists():
+            regenerate = target.stat().st_mtime < source_path.stat().st_mtime
+        if not regenerate:
+            return target
+        try:
+            with Image.open(source_path) as image:
+                normalized = ImageOps.exif_transpose(image).convert("RGB")
+                normalized.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+                normalized.save(target, format="JPEG", quality=THUMBNAIL_QUALITY, optimize=True)
+            return target
+        except Exception:
+            # Fallback: keep endpoint stable even for broken/non-image files.
+            return source_path
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -98,10 +127,11 @@ def create_app(config: AppConfig) -> FastAPI:
     @app.get("/api/batches", response_model=list[BatchListItem])
     def get_batches(
         limit: int = Query(default=50, ge=1, le=500),
+        include_downloaded: bool = Query(default=False),
         _: str = Depends(require_auth(config)),
     ) -> list[BatchListItem]:
         with session_factory() as session:
-            batches = list_recent_batches(session, limit=limit)
+            batches = list_recent_batches(session, limit=limit, include_downloaded=include_downloaded)
             response: list[BatchListItem] = []
             for batch in batches:
                 photographer = get_photographer_by_id(session, batch.photographer_id)
@@ -123,6 +153,26 @@ def create_app(config: AppConfig) -> FastAPI:
                     )
                 )
             return response
+
+    @app.get("/api/incoming/photographers", response_model=list[IncomingPhotographerItem])
+    def get_incoming_photographers(
+        _: str = Depends(require_auth(config)),
+    ) -> list[IncomingPhotographerItem]:
+        incoming_root = config.paths.incoming
+        if not incoming_root.exists():
+            return []
+        result: list[IncomingPhotographerItem] = []
+        allowed = set(config.batch.allowed_extensions)
+        for item in sorted(incoming_root.iterdir(), key=lambda d: d.name.lower()):
+            if not item.is_dir():
+                continue
+            count = 0
+            for candidate in item.iterdir():
+                if candidate.is_file() and candidate.suffix.lower() in allowed:
+                    count += 1
+            if count > 0:
+                result.append(IncomingPhotographerItem(folder_name=item.name, file_count=count))
+        return result
 
     @app.get("/api/batches/{batch_id}", response_model=BatchDetail)
     def get_batch(batch_id: str, _: str = Depends(require_auth(config))) -> BatchDetail:
@@ -157,6 +207,7 @@ def create_app(config: AppConfig) -> FastAPI:
                         size_bytes=photo.size_bytes,
                         original_path=photo.original_path,
                         image_url=f"/api/photos/{photo.id}/content",
+                        thumbnail_url=f"/api/photos/{photo.id}/thumbnail",
                     )
                     for photo in photos
                 ],
@@ -176,6 +227,21 @@ def create_app(config: AppConfig) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Photo file not found")
             media_type = "image/jpeg" if source.suffix.lower() in (".jpg", ".jpeg") else "application/octet-stream"
             return FileResponse(source, media_type=media_type, filename=photo.filename)
+
+    @app.get("/api/photos/{photo_id}/thumbnail")
+    def get_photo_thumbnail(
+        photo_id: str,
+        _: str = Depends(require_auth(config)),
+    ) -> FileResponse:
+        with session_factory() as session:
+            photo = get_photo_by_id(session, photo_id)
+            if photo is None:
+                raise HTTPException(status_code=404, detail="Photo not found")
+            source = Path(photo.original_path)
+            if not source.exists():
+                raise HTTPException(status_code=404, detail="Photo file not found")
+            preview = ensure_thumbnail(source, photo.id)
+            return FileResponse(preview, media_type="image/jpeg", filename=f"{photo.filename}.thumb.jpg")
 
     @app.get("/api/batches/{batch_id}/download")
     def download_batch_zip(
@@ -203,6 +269,10 @@ def create_app(config: AppConfig) -> FastAPI:
                 incoming_file = incoming_dir / photo.filename
                 if incoming_file.exists():
                     incoming_file.unlink()
+
+        with session_factory() as session:
+            if mark_batch_downloaded(session, batch_id):
+                session.commit()
 
         filename = build_archive_name(photographer_name, captured_at, daily_sequence)
         return FileResponse(
@@ -252,6 +322,28 @@ def create_app(config: AppConfig) -> FastAPI:
         with session_factory() as session:
             enabled_raw = get_app_setting(session, "yandex_disk.auto_upload_all", default="false")
         return YandexDiskAutoModeResponse(enabled=enabled_raw.lower() == "true")
+
+    @app.post("/api/batches/cleanup-processed", response_model=BatchCleanupResponse)
+    def cleanup_processed_batches(
+        _: str = Depends(require_auth(config)),
+    ) -> BatchCleanupResponse:
+        updated = 0
+        with session_factory() as session:
+            batches = list_recent_batches(session, limit=500, include_downloaded=False)
+            for batch in batches:
+                photographer = get_photographer_by_id(session, batch.photographer_id)
+                photographer_name = photographer.folder_name if photographer else None
+                if not photographer_name:
+                    continue
+                photos = get_batch_photos(session, batch.id)
+                if not photos:
+                    continue
+                incoming_dir = config.paths.incoming / photographer_name
+                exists_in_incoming = any((incoming_dir / photo.filename).exists() for photo in photos)
+                if not exists_in_incoming and mark_batch_downloaded(session, batch.id):
+                    updated += 1
+            session.commit()
+        return BatchCleanupResponse(status="ok", updated=updated)
 
     @app.post("/api/yandex/auto-upload", response_model=YandexDiskAutoModeResponse)
     def set_yandex_auto_upload(

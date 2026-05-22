@@ -558,3 +558,61 @@
 - Archive includes:
   - `/etc/yauza/config.yaml`
   - PostgreSQL dump of database `photofactory`
+
+## 2026-05-22 — UI/UX pass 1 for bild dashboard
+
+### Frontend improvements (`/bild`)
+
+- Updated visual hierarchy:
+  - cleaner card spacing and typography
+  - badge-style metadata in batch cards
+- Added navigation and filtering:
+  - search box (photographer / batch key / archive name)
+  - photographer dropdown
+  - date range (`from/to`)
+  - filter reset button
+- Added action-state UX:
+  - per-card loading state for `Скачать пакет` and `Загрузить на Я.Диск`
+  - short success state after action completion
+- Added top-level tab navigation:
+  - `Пакеты` (default open)
+  - `Уведомления`
+  - `Настройки`
+- Photographer filter now uses real incoming folders with files:
+  - `GET /api/incoming/photographers`
+- Added explicit package controls:
+  - `Обновить пакеты` button
+  - `Убрать старые из списка` button (`POST /api/batches/cleanup-processed`)
+- Fixed photo preview loading:
+  - dashboard now requests image blobs with JWT headers and renders local object URLs
+  - resolves previous issue where `<img>` could not access protected endpoint directly
+- Downloaded batches are now hidden from active list:
+  - `GET /api/batches` excludes `status=downloaded` by default
+  - `GET /api/batches/{id}/download` marks batch as `downloaded`
+- Gallery preview optimization:
+  - added cached thumbnail endpoint `GET /api/photos/{photo_id}/thumbnail`
+  - dashboard gallery now loads thumbnail blobs (not original JPEGs)
+  - image loading uses bounded concurrency to reduce UI flicker
+  - polling now refreshes package list only on active tab and skips redundant re-render
+- Gallery rendering and review:
+  - preview cards keep original aspect ratio (no forced square crop)
+  - click on preview opens original image in modal lightbox (near full-window size)
+  - lightbox supports ESC/backdrop close and direct original download
+  - lightbox supports previous/next navigation (buttons + keyboard arrows)
+- Session resilience:
+  - dashboard now handles `401` uniformly (clears stale token, stops polling, opens `Настройки`, asks to login again)
+  - avoids confusing "half-authorized" state after page refresh
+
+### Validation (VPS)
+
+- Protected image endpoint returns 200 with JWT auth:
+  - `GET /api/photos/{photo_id}/content`
+- Download endpoint returns 200 and marks batch as downloaded.
+- Active list excludes downloaded batches:
+  - `downloaded_visible_in_active = 0` (checked via API with/without `include_downloaded=true`)
+- Mobile-focused layout:
+  - responsive controls and single-column action flow on narrow screens
+- Added batch KPI chips:
+  - total batches
+  - filtered batches
+  - broken files count in current filter set

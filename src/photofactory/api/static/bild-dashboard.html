@@ -5,62 +5,284 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Photofactory Bild Dashboard</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 1.5rem auto; padding: 0 1rem; }
-    h1 { margin-bottom: 0.3rem; }
-    .muted { color: #666; margin-top: 0; }
+    :root {
+      --bg: #f6f8fb;
+      --surface: #fff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --border-strong: #d1d5db;
+      --accent: #2563eb;
+      --ok: #0f766e;
+      --err: #b91c1c;
+      --chip: #eef2ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1rem;
+      color: var(--text);
+      background: var(--bg);
+    }
+    h1 { margin: 0; }
+    h3 { margin: 0 0 0.8rem; }
+    .muted { color: var(--muted); margin: 0.25rem 0 0; }
+    .layout { display: grid; gap: 1rem; }
+    .tabs {
+      display: flex;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+      padding: 0.35rem;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+    }
+    .tab-btn {
+      border: 1px solid var(--border-strong);
+      background: #f9fafb;
+      color: #334155;
+      font-weight: 600;
+    }
+    .tab-btn.active {
+      border-color: var(--accent);
+      color: #1d4ed8;
+      background: #eff6ff;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+      background: var(--surface);
+    }
     .row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0; }
-    input, button { padding: 0.6rem; }
-    input { flex: 1 1 220px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.4rem; }
+    input, button, select {
+      padding: 0.55rem 0.7rem;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+    }
     button { cursor: pointer; }
-    .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; margin: 1rem 0; }
-    .notif { border-bottom: 1px solid #eee; padding: 0.6rem 0; }
-    .notif:last-child { border-bottom: none; }
+    button:hover { border-color: #9ca3af; }
+    button:disabled { opacity: 0.7; cursor: not-allowed; }
+    input, select { min-width: 150px; }
+    input[type="search"] { min-width: 260px; flex: 1 1 260px; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .batch-card { border: 1px solid #ddd; border-radius: 10px; padding: 0.8rem; margin: 0.8rem 0; }
-    .batch-header { margin-bottom: 0.5rem; }
-    .gallery { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.6rem; }
-    .gallery img { width: 120px; height: 120px; object-fit: cover; border-radius: 6px; border: 1px solid #ddd; }
-    .checkbox-row { display: flex; gap: 0.5rem; align-items: center; }
+    .status { margin-top: 0.4rem; font-size: 0.93rem; }
+    .status.error { color: var(--err); }
+    .status.ok { color: var(--ok); }
+    .kpi { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.4rem 0 0.6rem; }
+    .chip {
+      background: var(--chip);
+      border: 1px solid #c7d2fe;
+      color: #3730a3;
+      padding: 0.22rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.82rem;
+    }
+    .notif { border-top: 1px solid var(--border); padding: 0.55rem 0; }
+    .notif:first-child { border-top: none; }
+    .batch-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.85rem;
+      margin: 0.75rem 0;
+      background: #fff;
+    }
+    .batch-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.6rem;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .batch-title { font-weight: 600; }
+    .batch-sub { color: var(--muted); font-size: 0.9rem; margin-top: 0.2rem; }
+    .batch-badges { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .badge {
+      border: 1px solid var(--border-strong);
+      border-radius: 999px;
+      padding: 0.15rem 0.5rem;
+      font-size: 0.78rem;
+      color: #334155;
+      background: #f8fafc;
+    }
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+      gap: 0.45rem;
+      margin-top: 0.5rem;
+    }
+    .thumb-btn {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.25rem;
+      background: #f8fafc;
+      min-height: 110px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .thumb-btn:hover { border-color: var(--accent); }
+    .gallery img {
+      width: 100%;
+      height: auto;
+      max-height: 180px;
+      object-fit: contain;
+      border-radius: 6px;
+      background: #f3f4f6;
+      display: block;
+    }
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.72);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      z-index: 1000;
+    }
+    .lightbox.active { display: flex; }
+    .lightbox-content {
+      width: min(94vw, 1100px);
+      height: min(90vh, 860px);
+      background: #0b1220;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 0.7rem;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 0.5rem;
+    }
+    .lightbox-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #e2e8f0;
+      gap: 0.6rem;
+    }
+    .lightbox-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lightbox-controls {
+      display: flex;
+      gap: 0.45rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .lightbox-counter {
+      color: #cbd5e1;
+      font-size: 0.85rem;
+      min-width: 64px;
+      text-align: center;
+    }
+    .lightbox-stage {
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      background: #020617;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .lightbox-stage img {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+    }
+    .checkbox-row { display: flex; gap: 0.45rem; align-items: center; margin-top: 0.6rem; }
+    @media (max-width: 700px) {
+      body { padding: 0.7rem; }
+      .card { padding: 0.8rem; border-radius: 10px; }
+      .toolbar button, .toolbar input, .toolbar select { width: 100%; }
+      .row button { width: 100%; }
+    }
   </style>
 </head>
 <body>
-  <h1>Bild Dashboard</h1>
-  <p class="muted">Рабочий кабинет бильда: уведомления, пачки, галерея, скачивание и Яндекс.Диск.</p>
+  <div class="layout">
+    <header>
+      <h1>Кабинет бильда</h1>
+      <p class="muted">Оперативная работа с пачками: уведомления, галерея, скачивание, зеркало Я.Диска.</p>
+    </header>
 
-  <div class="card">
-    <h3>1) Вход</h3>
-    <div class="row">
-      <input id="username" value="bild" placeholder="username" />
-      <input id="password" type="password" placeholder="password" />
-      <button id="loginBtn">Войти</button>
-      <button id="logoutBtn">Выйти</button>
-    </div>
-    <div class="row">
-      <button id="enablePushBtn">Включить push на этом устройстве</button>
-      <button id="disablePushBtn">Отключить push</button>
-      <button id="refreshBtn">Обновить уведомления</button>
-      <button id="testPushBtn">Test push</button>
-      <button id="realBatchBtn">Проверка реальной пачкой</button>
-      <button id="markReadBtn">Пометить уведомления прочитанными</button>
-    </div>
-    <div class="checkbox-row">
-      <input id="autoYandexToggle" type="checkbox" />
-      <label for="autoYandexToggle">Загружать все входящие пакеты на Я.Диск</label>
-    </div>
-    <div id="status" class="mono"></div>
-  </div>
+    <nav class="tabs" aria-label="Разделы кабинета">
+      <button class="tab-btn" data-tab-target="packages">Пакеты</button>
+      <button class="tab-btn" data-tab-target="notifications">Уведомления</button>
+      <button class="tab-btn" data-tab-target="settings">Настройки</button>
+    </nav>
 
-  <div class="card">
-    <h3>2) Колокольчик (In-App)</h3>
-    <div id="meta" class="mono"></div>
-    <div id="notifications"></div>
-  </div>
+    <div class="card tab-panel" data-tab-panel="settings">
+      <h3>Настройки</h3>
+      <div class="row">
+        <input id="username" value="bild" placeholder="username" />
+        <input id="password" type="password" placeholder="password" />
+        <button id="loginBtn">Войти</button>
+        <button id="logoutBtn">Выйти</button>
+      </div>
+      <div class="toolbar">
+        <button id="enablePushBtn">Включить push</button>
+        <button id="disablePushBtn">Отключить push</button>
+        <button id="refreshBtn">Обновить всё</button>
+        <button id="testPushBtn">Test push</button>
+        <button id="realBatchBtn">Проверка реальной пачкой</button>
+        <button id="markReadBtn">Пометить прочитанными</button>
+      </div>
+      <div class="checkbox-row">
+        <input id="autoYandexToggle" type="checkbox" />
+        <label for="autoYandexToggle">Авто-загрузка всех входящих на Я.Диск</label>
+      </div>
+      <div id="status" class="mono status"></div>
+    </div>
 
-  <div class="card">
-    <h3>3) Пачки и галерея</h3>
-    <div id="batches"></div>
+    <div class="card tab-panel" data-tab-panel="notifications">
+      <h3>Уведомления</h3>
+      <div id="meta" class="mono"></div>
+      <div id="notifications"></div>
+    </div>
+
+    <div class="card tab-panel" data-tab-panel="packages">
+      <h3>Пакеты</h3>
+      <div class="toolbar">
+        <input id="searchInput" type="search" placeholder="Поиск: фотограф, номер пачки, имя файла..." />
+        <select id="photographerFilter">
+          <option value="">Все фотографы</option>
+        </select>
+        <input id="dateFrom" type="date" />
+        <input id="dateTo" type="date" />
+        <button id="refreshPackagesBtn">Обновить пакеты</button>
+        <button id="cleanupProcessedBtn">Убрать старые из списка</button>
+        <button id="resetFiltersBtn">Сбросить фильтры</button>
+      </div>
+      <div id="batchStats" class="kpi"></div>
+      <div id="batches"></div>
+    </div>
   </div>
 
   <script src="/bild-dashboard.js"></script>
+  <div id="lightbox" class="lightbox" aria-hidden="true">
+    <div class="lightbox-content" role="dialog" aria-modal="true">
+      <div class="lightbox-head">
+        <div id="lightboxTitle" class="lightbox-title mono"></div>
+        <div class="lightbox-controls">
+          <button id="lightboxPrevBtn">← Предыдущее</button>
+          <div id="lightboxCounter" class="lightbox-counter">0 / 0</div>
+          <button id="lightboxNextBtn">Следующее →</button>
+          <button id="lightboxDownloadBtn">Скачать файл</button>
+          <button id="lightboxCloseBtn">Закрыть</button>
+        </div>
+      </div>
+      <div class="lightbox-stage">
+        <img id="lightboxImage" alt="Оригинал" />
+      </div>
+    </div>
+  </div>
 </body>
 </html>
