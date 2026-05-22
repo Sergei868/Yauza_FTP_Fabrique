@@ -1,0 +1,68 @@
+# Скопируйте в config.yaml и заполните значения.
+# config.yaml не коммитится в git.
+
+app:
+  name: yauza-photofactory
+  env: development  # development | staging | production
+  base_url: https://photofactory.example.com  # для ссылок в Telegram
+
+paths:
+  incoming: /srv/yauza/incoming
+  originals: /srv/yauza/originals
+  backup: /srv/yauza/backup
+  # На MVP до появления event/session:
+  default_event_id: default
+  default_session_id: unnamed
+
+batch:
+  # Секунды без новых файлов → пачка считается завершённой
+  silence_seconds: 60
+  # Расширения (нижний регистр после нормализации)
+  allowed_extensions:
+    - .jpg
+    - .jpeg
+  # Дедупликация: skip | overwrite (уточняется в watcher)
+  duplicate_policy: skip
+
+ftp:
+  # Документация: один логин на всю incoming-зону
+  # Реальный пароль — только в config.yaml на сервере / в secrets
+  username: upload
+  # password: задайте в config.yaml
+  chroot: true
+  # Пассивный режим (заполнить на VPS после настройки vsftpd)
+  passive_port_min: 40000
+  passive_port_max: 40050
+
+database:
+  url: postgresql://photofactory:CHANGE_ME@127.0.0.1:5432/photofactory
+
+api:
+  host: 127.0.0.1
+  port: 8000
+  # Секрет для JWT — длинная случайная строка
+  # jwt_secret: ...
+
+auth:
+  # Первый бильд для MVP — позже вынесем в БД
+  # bild_users:
+  #   - username: bild1
+  #     password_hash: ...
+
+notifications:
+  enabled: true
+  channels:
+    - telegram
+  telegram:
+    bot_token: "YOUR_BOT_TOKEN"
+    # chat_id группы редакции или личный
+    default_chat_id: "-100xxxxxxxxxx"
+
+yandex_disk:
+  enabled: false
+  oauth_token: ""
+  remote_base_path: /YauzaPhotofactory
+
+logging:
+  level: INFO
+  file: /var/log/yauza/photofactory.log

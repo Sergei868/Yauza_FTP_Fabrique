@@ -1,0 +1,24 @@
+# Secrets and local config
+config.yaml
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+
+# Logs and data
+*.log
+/data/
+
+# OS
+.DS_Store
