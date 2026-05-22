@@ -640,3 +640,32 @@
 ### Current next step (single focus)
 
 - Finish lightbox zoom controls and then run mini-usability validation with 2-3 bilds.
+
+## 2026-05-22 — Hotfix: bild dashboard refresh + lightbox click
+
+### Symptoms reported
+
+- After page refresh, dashboard could appear "empty" until re-login.
+- Gallery preview click did not always open lightbox.
+
+### Root causes
+
+- Event delegation for gallery click depended on `event.target` and missed clicks on nested `<img>` content.
+- Frontend initialization was brittle when some DOM nodes were unavailable or served from mixed cached HTML/JS revisions.
+- Browser cache could keep older script URL, delaying delivery of the fixed logic.
+
+### Fix applied
+
+- Updated click handling to use `closest("[data-action]")` for reliable action resolution.
+- Hardened initialization with safe `bindIfExists(...)` guards for UI handlers.
+- Lightbox now resolves critical DOM refs at use time via helper (`getLightboxRefs`), reducing stale-reference risk.
+- Added cache-busting script URL in `bild-dashboard.html`:
+  - `/bild-dashboard.js?v=20260522-2236`
+
+### Deployment and verification
+
+- Deployed updated files to VPS:
+  - `src/photofactory/api/static/bild-dashboard.js`
+  - `src/photofactory/api/static/bild-dashboard.html`
+- Verified served HTML contains new version marker.
+- User confirmed: issue resolved ("заработало").

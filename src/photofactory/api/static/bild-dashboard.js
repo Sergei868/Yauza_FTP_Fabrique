@@ -36,6 +36,7 @@ const lightboxNextBtnEl = document.getElementById("lightboxNextBtn");
 const lightboxCounterEl = document.getElementById("lightboxCounter");
 
 function setStatus(text, isError = false) {
+  if (!statusEl) return;
   statusEl.textContent = text;
   statusEl.className = `mono status ${isError ? "error" : "ok"}`;
 }
@@ -63,6 +64,17 @@ function setActiveTab(tabId) {
     const active = panel.getAttribute("data-tab-panel") === tabId;
     panel.classList.toggle("active", active);
   }
+}
+
+function getLightboxRefs() {
+  return {
+    root: document.getElementById("lightbox"),
+    image: document.getElementById("lightboxImage"),
+    title: document.getElementById("lightboxTitle"),
+    counter: document.getElementById("lightboxCounter"),
+    prevBtn: document.getElementById("lightboxPrevBtn"),
+    nextBtn: document.getElementById("lightboxNextBtn"),
+  };
 }
 
 function getHeaders(extra = {}) {
@@ -342,13 +354,15 @@ async function fetchBlobObjectUrl(url, cacheMap, cacheKey) {
 async function openLightbox(photoId, originalSrc, filename) {
   if (!photoId || !originalSrc) return;
   if (!state.token) throw new Error("Сначала выполните вход");
-  lightboxTitleEl.textContent = filename || photoId;
-  lightboxImageEl.removeAttribute("src");
-  lightboxImageEl.alt = filename || "Оригинал";
-  lightboxEl.classList.add("active");
-  lightboxEl.setAttribute("aria-hidden", "false");
+  const refs = getLightboxRefs();
+  if (!refs.root || !refs.image || !refs.title) return;
+  refs.title.textContent = filename || photoId;
+  refs.image.removeAttribute("src");
+  refs.image.alt = filename || "Оригинал";
+  refs.root.classList.add("active");
+  refs.root.setAttribute("aria-hidden", "false");
   const objectUrl = await fetchBlobObjectUrl(originalSrc, state.originalObjectUrls, photoId);
-  lightboxImageEl.src = objectUrl;
+  refs.image.src = objectUrl;
   state.lightbox = {
     photos: [{ photoId, originalSrc, filename }],
     index: 0,
@@ -357,33 +371,38 @@ async function openLightbox(photoId, originalSrc, filename) {
 }
 
 function closeLightbox() {
-  lightboxEl.classList.remove("active");
-  lightboxEl.setAttribute("aria-hidden", "true");
-  lightboxImageEl.removeAttribute("src");
+  const refs = getLightboxRefs();
+  if (!refs.root || !refs.image) return;
+  refs.root.classList.remove("active");
+  refs.root.setAttribute("aria-hidden", "true");
+  refs.image.removeAttribute("src");
   state.lightbox = null;
 }
 
 async function openLightboxAt(photos, index) {
   if (!photos.length) return;
+  const refs = getLightboxRefs();
+  if (!refs.root || !refs.image || !refs.title) return;
   const safeIndex = Math.max(0, Math.min(index, photos.length - 1));
   const current = photos[safeIndex];
-  lightboxTitleEl.textContent = current.filename || current.photoId;
-  lightboxImageEl.removeAttribute("src");
-  lightboxEl.classList.add("active");
-  lightboxEl.setAttribute("aria-hidden", "false");
+  refs.title.textContent = current.filename || current.photoId;
+  refs.image.removeAttribute("src");
+  refs.root.classList.add("active");
+  refs.root.setAttribute("aria-hidden", "false");
   state.lightbox = { photos, index: safeIndex };
   updateLightboxControls();
   const objectUrl = await fetchBlobObjectUrl(current.originalSrc, state.originalObjectUrls, current.photoId);
-  lightboxImageEl.src = objectUrl;
+  refs.image.src = objectUrl;
 }
 
 function updateLightboxControls() {
-  if (!state.lightbox) return;
+  const refs = getLightboxRefs();
+  if (!state.lightbox || !refs.counter || !refs.prevBtn || !refs.nextBtn) return;
   const total = state.lightbox.photos.length;
   const idx = state.lightbox.index;
-  lightboxCounterEl.textContent = `${idx + 1} / ${total}`;
-  lightboxPrevBtnEl.disabled = idx <= 0;
-  lightboxNextBtnEl.disabled = idx >= total - 1;
+  refs.counter.textContent = `${idx + 1} / ${total}`;
+  refs.prevBtn.disabled = idx <= 0;
+  refs.nextBtn.disabled = idx >= total - 1;
 }
 
 async function shiftLightbox(step) {
@@ -650,31 +669,36 @@ async function uploadBatchToYandex(batchId) {
   }
 }
 
-document.getElementById("loginBtn").addEventListener("click", () => login().catch((e) => setStatus(String(e), true)));
-document.getElementById("logoutBtn").addEventListener("click", logout);
-document.getElementById("refreshBtn").addEventListener("click", () => {
+function bindIfExists(element, eventName, handler) {
+  if (!element) return;
+  element.addEventListener(eventName, handler);
+}
+
+bindIfExists(document.getElementById("loginBtn"), "click", () => login().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("logoutBtn"), "click", logout);
+bindIfExists(document.getElementById("refreshBtn"), "click", () => {
   Promise.all([fetchNotifications(), fetchBatchesAndRender()]).catch((e) => setStatus(String(e), true));
 });
-document.getElementById("enablePushBtn").addEventListener("click", () => enablePush().catch((e) => setStatus(String(e), true)));
-document.getElementById("disablePushBtn").addEventListener("click", () => disablePush().catch((e) => setStatus(String(e), true)));
-document.getElementById("testPushBtn").addEventListener("click", () => sendTestPush().catch((e) => setStatus(String(e), true)));
-document.getElementById("realBatchBtn").addEventListener("click", () => triggerRealBatch().catch((e) => setStatus(String(e), true)));
-document.getElementById("markReadBtn").addEventListener("click", () => markRead().catch((e) => setStatus(String(e), true)));
-document.getElementById("resetFiltersBtn").addEventListener("click", resetFilters);
-refreshPackagesBtnEl.addEventListener("click", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
-cleanupProcessedBtnEl.addEventListener("click", () => cleanupProcessedBatches().catch((e) => setStatus(String(e), true)));
-searchInputEl.addEventListener("input", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
-photographerFilterEl.addEventListener("change", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
-dateFromEl.addEventListener("change", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
-dateToEl.addEventListener("change", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("enablePushBtn"), "click", () => enablePush().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("disablePushBtn"), "click", () => disablePush().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("testPushBtn"), "click", () => sendTestPush().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("realBatchBtn"), "click", () => triggerRealBatch().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("markReadBtn"), "click", () => markRead().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("resetFiltersBtn"), "click", resetFilters);
+bindIfExists(refreshPackagesBtnEl, "click", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
+bindIfExists(cleanupProcessedBtnEl, "click", () => cleanupProcessedBatches().catch((e) => setStatus(String(e), true)));
+bindIfExists(searchInputEl, "input", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
+bindIfExists(photographerFilterEl, "change", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
+bindIfExists(dateFromEl, "change", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
+bindIfExists(dateToEl, "change", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
 for (const btn of tabButtons) {
   btn.addEventListener("click", () => setActiveTab(btn.getAttribute("data-tab-target")));
 }
-lightboxCloseBtnEl.addEventListener("click", closeLightbox);
-lightboxPrevBtnEl.addEventListener("click", () => shiftLightbox(-1).catch((e) => setStatus(String(e), true)));
-lightboxNextBtnEl.addEventListener("click", () => shiftLightbox(1).catch((e) => setStatus(String(e), true)));
-lightboxDownloadBtnEl.addEventListener("click", () => downloadLightboxOriginal().catch((e) => setStatus(String(e), true)));
-lightboxEl.addEventListener("click", (event) => {
+bindIfExists(lightboxCloseBtnEl, "click", closeLightbox);
+bindIfExists(lightboxPrevBtnEl, "click", () => shiftLightbox(-1).catch((e) => setStatus(String(e), true)));
+bindIfExists(lightboxNextBtnEl, "click", () => shiftLightbox(1).catch((e) => setStatus(String(e), true)));
+bindIfExists(lightboxDownloadBtnEl, "click", () => downloadLightboxOriginal().catch((e) => setStatus(String(e), true)));
+bindIfExists(lightboxEl, "click", (event) => {
   if (event.target === lightboxEl) closeLightbox();
 });
 window.addEventListener("keydown", (event) => {
@@ -691,15 +715,17 @@ window.addEventListener("keydown", (event) => {
     shiftLightbox(1).catch((e) => setStatus(String(e), true));
   }
 });
-autoYandexToggleEl.addEventListener("change", (event) => {
+bindIfExists(autoYandexToggleEl, "change", (event) => {
   const enabled = !!event.target.checked;
   updateAutoYandexMode(enabled).catch((e) => setStatus(String(e), true));
 });
-batchesEl.addEventListener("click", (event) => {
+bindIfExists(batchesEl, "click", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
-  const action = target.getAttribute("data-action");
-  const batchId = target.getAttribute("data-batch-id");
+  const actionEl = target.closest("[data-action]");
+  if (!(actionEl instanceof HTMLElement)) return;
+  const action = actionEl.getAttribute("data-action");
+  const batchId = actionEl.getAttribute("data-batch-id");
   if (!action || !batchId) return;
   if (action === "download") {
     downloadBatch(batchId);
@@ -710,8 +736,8 @@ batchesEl.addEventListener("click", (event) => {
     return;
   }
   if (action === "open-image") {
-    const batchId = target.getAttribute("data-batch-id");
-    const photoIndexRaw = target.getAttribute("data-photo-index");
+    const batchId = actionEl.getAttribute("data-batch-id");
+    const photoIndexRaw = actionEl.getAttribute("data-photo-index");
     const photoIndex = Number(photoIndexRaw || "0");
     if (batchId && state.batchCache.has(batchId)) {
       const detail = state.batchCache.get(batchId);
@@ -723,9 +749,9 @@ batchesEl.addEventListener("click", (event) => {
       openLightboxAt(photos, Number.isFinite(photoIndex) ? photoIndex : 0).catch((e) => setStatus(String(e), true));
       return;
     }
-    const photoId = target.getAttribute("data-photo-id");
-    const originalSrc = target.getAttribute("data-original-src");
-    const filename = target.getAttribute("data-filename") || "";
+    const photoId = actionEl.getAttribute("data-photo-id");
+    const originalSrc = actionEl.getAttribute("data-original-src");
+    const filename = actionEl.getAttribute("data-filename") || "";
     openLightbox(photoId, originalSrc, filename).catch((e) => setStatus(String(e), true));
   }
 });
