@@ -616,3 +616,27 @@
   - total batches
   - filtered batches
   - broken files count in current filter set
+
+## 2026-05-22 — Context checkpoint for next sessions
+
+### Goal of checkpoint
+
+- Consolidate global/local project state so next work sessions can resume without context loss.
+
+### Documentation synchronized
+
+- Expanded `docs/SESSION-HANDOFF.md`:
+  - project goal and current production status;
+  - completed phases and pending tasks;
+  - explicit next-sequence actions;
+  - critical runtime files and VPS health-check commands;
+  - fixed constraints (single-module changes, config-first, no secrets in git).
+- Updated `docs/modules/07-ui-ux-bild.md`:
+  - recorded implemented UX features in detail;
+  - recorded remaining UI tasks (bild feedback round + lightbox zoom controls).
+- Updated `docs/ROADMAP.md`:
+  - added explicit step `7.7` for lightbox zoom (`+/-`, wheel, fit/100%, indicator), status `in_progress`.
+
+### Current next step (single focus)
+
+- Finish lightbox zoom controls and then run mini-usability validation with 2-3 bilds.

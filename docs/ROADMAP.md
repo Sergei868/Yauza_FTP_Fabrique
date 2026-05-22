@@ -77,6 +77,7 @@
 | 7.4 | UX обработки пачек: явные состояния, прогресс, ошибки, подтверждения | done |
 | 7.5 | Просмотр оригинала поверх галереи (lightbox) | done |
 | 7.6 | Мини-юзабилити тест с бильдами, фиксация обратной связи | in_progress |
+| 7.7 | Zoom в lightbox (`+/-`, wheel, fit/100%, scale indicator) | in_progress |
 | Док | [modules/07-ui-ux-bild.md](modules/07-ui-ux-bild.md) | in_progress |
 
 ## Позже (вне текущего MVP)

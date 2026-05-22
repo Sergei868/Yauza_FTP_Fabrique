@@ -1,42 +1,80 @@
-# Session Handoff (1-minute context)
+# Session Handoff (подробный контекст)
 
-## Где мы сейчас
+## 1) Цель проекта (зачем это делаем)
 
-- Ветка: `cursor/init-photofactory-foundation`
-- Ядро MVP в проде работает end-to-end:
-  - FTP приём (`vsftpd`, upload-only)
-  - watcher (`yauza-watcher`, systemd)
-  - PostgreSQL + Alembic
-  - API (`yauza-api`, JWT auth)
-  - кабинет бильда `https://work.yauzamedia.ru/bild`
-  - In-App + PWA push
-  - Яндекс.Диск зеркало структуры incoming
+Собрать устойчивый production-процесс для фотопотока:
 
-## Что уже работает end-to-end
+1. Фотографы заливают JPEG по FTP в свои подпапки.
+2. Система автоматически фиксирует пачки после тишины.
+3. Бильд получает уведомление и работает с пачкой через веб-кабинет.
+4. Параллельно хранится legacy-совместимое зеркало на Яндекс.Диске (структура как в incoming), чтобы не ломать старый рабочий процесс.
 
-1. Камера грузит `incoming/<photographer>/`.
-2. Watcher фиксирует пачку после тишины.
-3. Файлы попадают в `originals` + `backup`.
-4. Пачка/фото пишутся в PostgreSQL (включая `broken_files_count`).
-5. В `/bild` видны уведомления, карточки пачек, галерея, кнопки действий.
-6. `Скачать пакет` формирует ZIP по шаблону имени.
-7. `Загрузить на Я.Диск` и авто-режим работают.
-8. Яндекс.Диск путь сейчас: `/Yauza_FTP_Mirror/<photographer>/<filename>.jpg`.
+Это MVP, который уже пригоден для реальной ежедневной работы.
 
-## Внешние каналы
+## 2) Текущий production-статус
 
-- Telegram: код есть, но на VPS блок исходящего трафика к `api.telegram.org:443`.
-- MAX: адаптер готов, но runtime webhook пока не настроен.
-- PWA push: рабочий, проверен вручную.
+- Ветка разработки: `cursor/init-photofactory-foundation`.
+- Основной URL кабинета: `https://work.yauzamedia.ru/bild`.
+- Ядро MVP работает end-to-end:
+  - FTP приём (`vsftpd`, upload-only, chroot).
+  - Watcher (`yauza-watcher`, systemd).
+  - PostgreSQL + Alembic.
+  - FastAPI (`yauza-api`) + JWT auth.
+  - In-App уведомления + PWA push.
+  - Яндекс.Диск зеркалирование файловой структуры.
 
-## Критичные runtime-файлы на VPS
+## 3) Что уже реализовано по фазам
 
-- `/etc/yauza/config.yaml` — основной runtime-конфиг
-- `/etc/yauza/.db-password` — пароль БД
-- `/etc/yauza/.api-auth-password` — пароль API-пользователя `bild`
-- `/etc/yauza/pwa_vapid_private.pem` — приватный VAPID ключ
+### Фаза 1-4 (инфраструктура, ingestion, API)
 
-## Команды быстрой проверки (VPS)
+- Камера грузит в `incoming/<photographer>/`.
+- Watcher по таймауту тишины фиксирует batch.
+- Файлы уходят в `originals` и `backup`.
+- В БД сохраняются photographers/batches/photos, включая `broken_files_count`.
+- В кабинете доступны карточки пачек, галерея и действия.
+
+### Фаза 5 (уведомления)
+
+- In-App: готово и работает.
+- PWA push: готово и проверено.
+- Telegram: код есть, но заблокирован исходящий трафик с VPS на `api.telegram.org:443`.
+- MAX: адаптер готов, но webhook не подключен в runtime.
+
+### Фаза 6 (Яндекс.Диск)
+
+- Ручная и автоматическая загрузка готовы.
+- Схема зеркала: `/Yauza_FTP_Mirror/<photographer>/<filename>.jpg`.
+- Текущая логика соответствует требованию "слепок incoming-структуры".
+
+### Фаза 7 (UI/UX кабинета бильда)
+
+- Сделано:
+  - табы `Пакеты / Уведомления / Настройки` (по умолчанию `Пакеты`);
+  - фильтры (поиск, фотограф, даты), кнопки `Обновить пакеты` и `Убрать старые`;
+  - оптимизация превью через thumbnail endpoint + ограничение конкуренции загрузки;
+  - снижение мерцаний через защиту от лишних re-render;
+  - lightbox просмотра оригинала, стрелки, клавиатура (`←`, `→`, `Esc`);
+  - скачивание одного фото из lightbox;
+  - корректная обработка `401` (сброс сессии, переход в `Настройки`, понятный статус).
+- В работе:
+  - мини-юзабилити проверка с 2-3 бильдами и фиксация обратной связи;
+  - zoom в lightbox (`+/-`, колесо, fit/100%, индикатор масштаба) как следующий UI-штрих.
+
+## 4) Что считать "истиной" при возобновлении работы
+
+1. `PROJECT.md` и `docs/` — источник решений и договорённостей.
+2. `docs/ROADMAP.md` — фактический статус фаз.
+3. `docs/modules/*.md` — техническая детализация по модулям.
+4. `docs/deploy-notes.md` — хронология изменений и проверок на VPS.
+
+## 5) Критичные runtime-файлы на VPS
+
+- `/etc/yauza/config.yaml` — runtime-конфиг приложения.
+- `/etc/yauza/.db-password` — пароль PostgreSQL.
+- `/etc/yauza/.api-auth-password` — пароль API пользователя `bild`.
+- `/etc/yauza/pwa_vapid_private.pem` — приватный VAPID-ключ.
+
+## 6) Быстрый health-check (VPS)
 
 ```bash
 sudo systemctl status yauza-watcher --no-pager -n 30
@@ -53,7 +91,19 @@ curl -sS -H "Authorization: Bearer ${TOKEN}" "http://127.0.0.1:8000/api/batches?
 curl -sS -H "Authorization: Bearer ${TOKEN}" "http://127.0.0.1:8000/api/yandex/auto-upload"
 ```
 
-## Следующий конкретный шаг
+## 7) Следующая рабочая последовательность (без потери контекста)
 
-- Старт фазы 7: UI/UX доработка кабинета бильда (см. `docs/modules/07-ui-ux-bild.md`).
-- Параллельно без остановки процесса: legacy-флоу остаётся через FTP + зеркало на Я.Диске.
+1. Проверить health watcher/API и базовый API smoke.
+2. Доделать zoom в lightbox (изолированно в UI-модуле, без изменений ingestion).
+3. Провести 2-3 коротких user-проверки у бильдов, собрать обратную связь.
+4. Зафиксировать результат в:
+   - `docs/modules/07-ui-ux-bild.md`,
+   - `docs/ROADMAP.md`,
+   - `docs/deploy-notes.md`.
+
+## 8) Важные ограничения и принятые решения
+
+- Не смешиваем в одном изменении разные модули без явной необходимости.
+- Все параметры должны жить в конфиге, без хардкода секретов.
+- `config.yaml` и токены не коммитим.
+- Legacy-поток через FTP + зеркало Я.Диска держим рабочим параллельно развитию кабинета.
