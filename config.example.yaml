@@ -17,6 +17,8 @@ paths:
 batch:
   # Секунды без новых файлов → пачка считается завершённой
   silence_seconds: 60
+  # Интервал проверки incoming-папок
+  poll_seconds: 5
   # Расширения (нижний регистр после нормализации)
   allowed_extensions:
     - .jpg
@@ -40,25 +42,37 @@ database:
 api:
   host: 127.0.0.1
   port: 8000
-  # Секрет для JWT — длинная случайная строка
-  # jwt_secret: ...
 
 auth:
-  # Первый бильд для MVP — позже вынесем в БД
-  # bild_users:
-  #   - username: bild1
-  #     password_hash: ...
+  # MVP: один пользователь бильда из конфига
+  username: bild
+  password: CHANGE_ME_STRONG_PASSWORD
+  jwt_secret: CHANGE_ME_VERY_LONG_RANDOM_SECRET
+  token_ttl_minutes: 120
 
 notifications:
   enabled: true
   channels:
     - telegram
+    # - max
+    # - pwa
   telegram:
     bot_token: "YOUR_BOT_TOKEN"
     # chat_id группы редакции или личный
     default_chat_id: "-100xxxxxxxxxx"
+  max:
+    # URL входящего вебхука MAX-интеграции
+    webhook_url: ""
+    # Опциональный токен авторизации для MAX webhook
+    auth_token: ""
+  pwa:
+    enabled: false
+    vapid_public_key: ""
+    vapid_private_key: ""
+    vapid_subject: "mailto:admin@yauza-media.ru"
 
 yandex_disk:
+  # false: кнопки в кабинете останутся, но API вернёт "integration disabled"
   enabled: false
   oauth_token: ""
   remote_base_path: /YauzaPhotofactory
