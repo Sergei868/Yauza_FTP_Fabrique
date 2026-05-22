@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Photofactory Bild Dashboard</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 1.5rem auto; padding: 0 1rem; }
+    h1 { margin-bottom: 0.3rem; }
+    .muted { color: #666; margin-top: 0; }
+    .row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0; }
+    input, button { padding: 0.6rem; }
+    input { flex: 1 1 220px; }
+    button { cursor: pointer; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; margin: 1rem 0; }
+    .notif { border-bottom: 1px solid #eee; padding: 0.6rem 0; }
+    .notif:last-child { border-bottom: none; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .batch-card { border: 1px solid #ddd; border-radius: 10px; padding: 0.8rem; margin: 0.8rem 0; }
+    .batch-header { margin-bottom: 0.5rem; }
+    .gallery { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.6rem; }
+    .gallery img { width: 120px; height: 120px; object-fit: cover; border-radius: 6px; border: 1px solid #ddd; }
+    .checkbox-row { display: flex; gap: 0.5rem; align-items: center; }
+  </style>
+</head>
+<body>
+  <h1>Bild Dashboard</h1>
+  <p class="muted">Рабочий кабинет бильда: уведомления, пачки, галерея, скачивание и Яндекс.Диск.</p>
+
+  <div class="card">
+    <h3>1) Вход</h3>
+    <div class="row">
+      <input id="username" value="bild" placeholder="username" />
+      <input id="password" type="password" placeholder="password" />
+      <button id="loginBtn">Войти</button>
+      <button id="logoutBtn">Выйти</button>
+    </div>
+    <div class="row">
+      <button id="enablePushBtn">Включить push на этом устройстве</button>
+      <button id="disablePushBtn">Отключить push</button>
+      <button id="refreshBtn">Обновить уведомления</button>
+      <button id="testPushBtn">Test push</button>
+      <button id="realBatchBtn">Проверка реальной пачкой</button>
+      <button id="markReadBtn">Пометить уведомления прочитанными</button>
+    </div>
+    <div class="checkbox-row">
+      <input id="autoYandexToggle" type="checkbox" />
+      <label for="autoYandexToggle">Загружать все входящие пакеты на Я.Диск</label>
+    </div>
+    <div id="status" class="mono"></div>
+  </div>
+
+  <div class="card">
+    <h3>2) Колокольчик (In-App)</h3>
+    <div id="meta" class="mono"></div>
+    <div id="notifications"></div>
+  </div>
+
+  <div class="card">
+    <h3>3) Пачки и галерея</h3>
+    <div id="batches"></div>
+  </div>
+
+  <script src="/bild-dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Photofactory PWA Push Test</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { margin-bottom: 0.5rem; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; margin: 1rem 0; }
+    label { display: block; margin: 0.5rem 0 0.2rem; font-weight: 600; }
+    input, button { width: 100%; padding: 0.6rem; margin-bottom: 0.6rem; }
+    button { cursor: pointer; }
+    pre { background: #111; color: #0f0; padding: 0.75rem; border-radius: 8px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>PWA Push Test</h1>
+  <p>Техническая страница для проверки push-уведомлений на телефоне (Android/iPhone).</p>
+
+  <div class="card">
+    <h3>1) Авторизация</h3>
+    <label>Username</label>
+    <input id="username" value="bild" />
+    <label>Password</label>
+    <input id="password" type="password" />
+    <button id="loginBtn">Получить JWT</button>
+  </div>
+
+  <div class="card">
+    <h3>2) Подписка устройства</h3>
+    <button id="subscribeBtn">Подписать устройство на push</button>
+    <button id="unsubscribeBtn">Отписать устройство</button>
+  </div>
+
+  <div class="card">
+    <h3>3) Тестовая отправка</h3>
+    <label>Title</label>
+    <input id="pushTitle" value="Photofactory test" />
+    <label>Body</label>
+    <input id="pushBody" value="Push работает" />
+    <button id="sendBtn">Отправить test push</button>
+  </div>
+
+  <h3>Лог</h3>
+  <pre id="log"></pre>
+  <script src="/pwa-test.js"></script>
+</body>
+</html>
