@@ -116,6 +116,10 @@ class BatchCleanupResponse(BaseModel):
     updated: int
 
 
+class BatchSelectedDownloadRequest(BaseModel):
+    photo_ids: list[str]
+
+
 class PushSubscriptionKeys(BaseModel):
     p256dh: str
     auth: str

@@ -13,11 +13,19 @@ def build_archive_name(
     captured_at: datetime,
     daily_sequence: int,
 ) -> str:
+    return f"{photographer_name}-{captured_at:%d}-{captured_at:%m}-{captured_at:%H%M}-{daily_sequence:03d}.zip"
+
+
+def build_selected_archive_name(
+    photographer_name: str,
+    captured_at: datetime,
+    *,
+    daily_selected_counter: int,
+    daily_sequence: int,
+) -> str:
     return (
-        f"{photographer_name}_"
-        f"{captured_at:%Y%m%d}_"
-        f"{captured_at:%H%M%S}_"
-        f"{daily_sequence:03d}.zip"
+        f"{photographer_name}-{captured_at:%d}-{captured_at:%m}-{captured_at:%H%M}-"
+        f"selected_{daily_selected_counter:03d}-{daily_sequence:03d}.zip"
     )
 
 

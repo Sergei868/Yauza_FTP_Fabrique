@@ -22,6 +22,7 @@ class BatchConfig:
     silence_seconds: int
     allowed_extensions: tuple[str, ...]
     poll_seconds: int
+    write_backup_copy: bool
 
 
 @dataclass(frozen=True)
@@ -141,6 +142,7 @@ def load_config(path: str | Path) -> AppConfig:
         silence_seconds=int(batch.get("silence_seconds", 60)),
         allowed_extensions=_normalize_extensions(batch.get("allowed_extensions", [".jpg", ".jpeg"])),
         poll_seconds=int(batch.get("poll_seconds", 5)),
+        write_backup_copy=bool(batch.get("write_backup_copy", True)),
     )
     database_config = DatabaseConfig(
         url=str(database.get("url", "postgresql://photofactory:CHANGE_ME@127.0.0.1:5432/photofactory"))

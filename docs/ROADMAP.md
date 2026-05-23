@@ -25,9 +25,10 @@
 |-----|----------|--------|
 | 2.1 | Скелет пакета `src/photofactory/watcher/` | done |
 | 2.2 | Таймер тишины 60 с (из config) | done |
-| 2.3 | Backup + перенос в originals | done |
+| 2.3 | Backup + перенос в originals | in_progress |
+| 2.5 | Новый режим: incoming не очищается watcher'ом, фиксация только новых волн файлов | in_progress |
 | 2.4 | systemd unit `yauza-watcher` | done |
-| Док | [modules/02-batch-watcher.md](modules/02-batch-watcher.md) | done |
+| Док | [modules/02-batch-watcher.md](modules/02-batch-watcher.md) | in_progress |
 
 ## Фаза 3 — База данных
 
@@ -45,8 +46,9 @@
 | 4.2 | Список пачек, скачать ZIP | done |
 | 4.3 | После скачивания — удаление из incoming (если ещё осталось) | done |
 | 4.4 | Минимальная страница бильда (`/bild`) | done |
-| 4.5 | Кабинет бильда: карточки пачек, галерея, `Скачать пакет` | done |
-| Док | [modules/04-api-web.md](modules/04-api-web.md) | done |
+| 4.5 | Кабинет бильда: карточки пачек, галерея, `Скачать пакет` | in_progress |
+| 4.6 | Сценарий 2: `Скачать все` / `Скачать выбранное`, удаление скачанных из incoming | in_progress |
+| Док | [modules/04-api-web.md](modules/04-api-web.md) | in_progress |
 
 ## Фаза 5 — Уведомления (In-App / MAX / PWA)
 
@@ -64,8 +66,9 @@
 | Шаг | Описание | Статус |
 |-----|----------|--------|
 | 6.1 | OAuth, ручная выгрузка пачки | done |
-| 6.2 | Автовыгрузка всех входящих пакетов (настройка в кабинете) | done |
-| Док | [modules/06-yandex-disk.md](modules/06-yandex-disk.md) | done |
+| 6.2 | Автовыгрузка всех входящих пакетов (настройка в кабинете) | in_progress |
+| 6.3 | Продуктовый режим: Я.Диск как основной backup, локальный backup опционален | in_progress |
+| Док | [modules/06-yandex-disk.md](modules/06-yandex-disk.md) | in_progress |
 
 ## Фаза 7 — UI/UX кабинета бильда
 

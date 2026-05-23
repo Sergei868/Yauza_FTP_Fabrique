@@ -13,12 +13,13 @@ from PIL import Image, ImageOps
 from starlette.background import BackgroundTask
 
 from photofactory.api.auth import create_access_token, require_auth
-from photofactory.batches import build_archive_name, build_batch_zip
+from photofactory.batches import build_archive_name, build_batch_zip, build_selected_archive_name
 from photofactory.api.schemas import (
     BatchCleanupResponse,
     BatchDetail,
     BatchListItem,
     BatchPhotoItem,
+    BatchSelectedDownloadRequest,
     HealthResponse,
     IncomingPhotographerItem,
     NotificationMarkReadRequest,
@@ -48,6 +49,7 @@ from photofactory.db.repository import (
     get_app_setting,
     mark_batch_downloaded,
     mark_all_notifications_read,
+    increment_daily_counter,
     list_recent_notifications,
     list_recent_batches,
     set_app_setting,
@@ -87,6 +89,49 @@ def create_app(config: AppConfig) -> FastAPI:
         except Exception:
             # Fallback: keep endpoint stable even for broken/non-image files.
             return source_path
+
+    def resolve_photo_paths(
+        *,
+        photo_filename: str,
+        original_path: str,
+        photographer_name: str,
+    ) -> tuple[Path, Path]:
+        original = Path(original_path)
+        incoming = config.paths.incoming / photographer_name / photo_filename
+        return original, incoming
+
+    def pick_readable_source(
+        *,
+        photo_filename: str,
+        original_path: str,
+        photographer_name: str,
+    ) -> Path | None:
+        original, incoming = resolve_photo_paths(
+            photo_filename=photo_filename,
+            original_path=original_path,
+            photographer_name=photographer_name,
+        )
+        if original.exists():
+            return original
+        if incoming.exists():
+            return incoming
+        return None
+
+    def list_active_photos_for_batch(photos: list, photographer_name: str) -> list:
+        incoming_dir = config.paths.incoming / photographer_name
+        return [photo for photo in photos if (incoming_dir / photo.filename).exists()]
+
+    def remove_photo_files(photos: list, photographer_name: str) -> None:
+        for photo in photos:
+            original, incoming = resolve_photo_paths(
+                photo_filename=photo.filename,
+                original_path=photo.original_path,
+                photographer_name=photographer_name,
+            )
+            if incoming.exists():
+                incoming.unlink()
+            if original.exists():
+                original.unlink()
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -131,11 +176,16 @@ def create_app(config: AppConfig) -> FastAPI:
         _: str = Depends(require_auth(config)),
     ) -> list[BatchListItem]:
         with session_factory() as session:
-            batches = list_recent_batches(session, limit=limit, include_downloaded=include_downloaded)
+            probe_limit = min(500, max(limit * 4, limit))
+            batches = list_recent_batches(session, limit=probe_limit, include_downloaded=include_downloaded)
             response: list[BatchListItem] = []
             for batch in batches:
                 photographer = get_photographer_by_id(session, batch.photographer_id)
                 photographer_name = photographer.folder_name if photographer else "unknown"
+                photos = get_batch_photos(session, batch.id)
+                active_photos = list_active_photos_for_batch(photos, photographer_name)
+                if not include_downloaded and not active_photos:
+                    continue
                 daily_sequence = get_batch_daily_sequence(session, batch)
                 response.append(
                     BatchListItem(
@@ -143,7 +193,7 @@ def create_app(config: AppConfig) -> FastAPI:
                         batch_key=batch.batch_key,
                         photographer=photographer_name,
                         status=batch.status,
-                        file_count=batch.file_count,
+                        file_count=len(active_photos) if not include_downloaded else batch.file_count,
                         broken_files_count=batch.broken_files_count,
                         daily_sequence=daily_sequence,
                         total_size_bytes=batch.total_size_bytes,
@@ -152,6 +202,8 @@ def create_app(config: AppConfig) -> FastAPI:
                         created_at=batch.created_at,
                     )
                 )
+                if len(response) >= limit:
+                    break
             return response
 
     @app.get("/api/incoming/photographers", response_model=list[IncomingPhotographerItem])
@@ -183,6 +235,7 @@ def create_app(config: AppConfig) -> FastAPI:
             photos = get_batch_photos(session, batch.id)
             photographer = get_photographer_by_id(session, batch.photographer_id)
             photographer_name = photographer.folder_name if photographer else "unknown"
+            active_photos = list_active_photos_for_batch(photos, photographer_name)
             daily_sequence = get_batch_daily_sequence(session, batch)
             captured_at = batch.captured_at
             return BatchDetail(
@@ -190,7 +243,7 @@ def create_app(config: AppConfig) -> FastAPI:
                 batch_key=batch.batch_key,
                 photographer=photographer_name,
                 status=batch.status,
-                file_count=batch.file_count,
+                file_count=len(active_photos),
                 broken_files_count=batch.broken_files_count,
                 daily_sequence=daily_sequence,
                 total_size_bytes=batch.total_size_bytes,
@@ -209,7 +262,7 @@ def create_app(config: AppConfig) -> FastAPI:
                         image_url=f"/api/photos/{photo.id}/content",
                         thumbnail_url=f"/api/photos/{photo.id}/thumbnail",
                     )
-                    for photo in photos
+                    for photo in active_photos
                 ],
             )
 
@@ -222,8 +275,17 @@ def create_app(config: AppConfig) -> FastAPI:
             photo = get_photo_by_id(session, photo_id)
             if photo is None:
                 raise HTTPException(status_code=404, detail="Photo not found")
-            source = Path(photo.original_path)
-            if not source.exists():
+            batch = get_batch_by_id(session, photo.batch_id)
+            if batch is None:
+                raise HTTPException(status_code=404, detail="Batch not found")
+            photographer = get_photographer_by_id(session, batch.photographer_id)
+            photographer_name = photographer.folder_name if photographer else "unknown"
+            source = pick_readable_source(
+                photo_filename=photo.filename,
+                original_path=photo.original_path,
+                photographer_name=photographer_name,
+            )
+            if source is None:
                 raise HTTPException(status_code=404, detail="Photo file not found")
             media_type = "image/jpeg" if source.suffix.lower() in (".jpg", ".jpeg") else "application/octet-stream"
             return FileResponse(source, media_type=media_type, filename=photo.filename)
@@ -237,8 +299,17 @@ def create_app(config: AppConfig) -> FastAPI:
             photo = get_photo_by_id(session, photo_id)
             if photo is None:
                 raise HTTPException(status_code=404, detail="Photo not found")
-            source = Path(photo.original_path)
-            if not source.exists():
+            batch = get_batch_by_id(session, photo.batch_id)
+            if batch is None:
+                raise HTTPException(status_code=404, detail="Batch not found")
+            photographer = get_photographer_by_id(session, batch.photographer_id)
+            photographer_name = photographer.folder_name if photographer else "unknown"
+            source = pick_readable_source(
+                photo_filename=photo.filename,
+                original_path=photo.original_path,
+                photographer_name=photographer_name,
+            )
+            if source is None:
                 raise HTTPException(status_code=404, detail="Photo file not found")
             preview = ensure_thumbnail(source, photo.id)
             return FileResponse(preview, media_type="image/jpeg", filename=f"{photo.filename}.thumb.jpg")
@@ -254,27 +325,93 @@ def create_app(config: AppConfig) -> FastAPI:
             if batch is None:
                 raise HTTPException(status_code=404, detail="Batch not found")
             photos = get_batch_photos(session, batch.id)
-            if not photos:
-                raise HTTPException(status_code=404, detail="Batch has no photos")
             photographer = get_photographer_by_id(session, batch.photographer_id)
             photographer_name = photographer.folder_name if photographer else "unknown"
+            active_photos = list_active_photos_for_batch(photos, photographer_name)
+            if not active_photos:
+                raise HTTPException(status_code=404, detail="Batch has no active photos in incoming")
             daily_sequence = get_batch_daily_sequence(session, batch)
             captured_at = batch.captured_at
 
-        temp_zip_path = build_batch_zip([(Path(photo.original_path), photo.filename) for photo in photos])
+            zip_sources: list[tuple[Path, str]] = []
+            for photo in active_photos:
+                source = pick_readable_source(
+                    photo_filename=photo.filename,
+                    original_path=photo.original_path,
+                    photographer_name=photographer_name,
+                )
+                if source is not None:
+                    zip_sources.append((source, photo.filename))
+            if not zip_sources:
+                raise HTTPException(status_code=404, detail="No readable photo files for archive")
+            temp_zip_path = build_batch_zip(zip_sources)
 
-        if cleanup_incoming and photographer_name != "unknown":
-            incoming_dir = config.paths.incoming / photographer_name
-            for photo in photos:
-                incoming_file = incoming_dir / photo.filename
-                if incoming_file.exists():
-                    incoming_file.unlink()
-
-        with session_factory() as session:
+            if cleanup_incoming and photographer_name != "unknown":
+                remove_photo_files(active_photos, photographer_name)
             if mark_batch_downloaded(session, batch_id):
                 session.commit()
 
         filename = build_archive_name(photographer_name, captured_at, daily_sequence)
+        return FileResponse(
+            path=temp_zip_path,
+            media_type="application/zip",
+            filename=filename,
+            background=BackgroundTask(lambda path: Path(path).unlink(missing_ok=True), str(temp_zip_path)),
+        )
+
+    @app.post("/api/batches/{batch_id}/download-selected")
+    def download_selected_batch_zip(
+        batch_id: str,
+        payload: BatchSelectedDownloadRequest,
+        _: str = Depends(require_auth(config)),
+    ) -> FileResponse:
+        selected_ids = {item for item in payload.photo_ids if item}
+        if not selected_ids:
+            raise HTTPException(status_code=400, detail="photo_ids is empty")
+        with session_factory() as session:
+            batch = get_batch_by_id(session, batch_id)
+            if batch is None:
+                raise HTTPException(status_code=404, detail="Batch not found")
+            photos = get_batch_photos(session, batch.id)
+            photographer = get_photographer_by_id(session, batch.photographer_id)
+            photographer_name = photographer.folder_name if photographer else "unknown"
+            active_photos = list_active_photos_for_batch(photos, photographer_name)
+            selected_photos = [photo for photo in active_photos if photo.id in selected_ids]
+            if not selected_photos:
+                raise HTTPException(status_code=400, detail="Selected photos are not active in incoming")
+            daily_sequence = get_batch_daily_sequence(session, batch)
+            captured_at = batch.captured_at
+            day_key = captured_at.strftime("%Y%m%d")
+            selected_counter = increment_daily_counter(
+                session,
+                key_prefix="downloads.selected.counter",
+                day_key=day_key,
+            )
+
+            zip_sources: list[tuple[Path, str]] = []
+            for photo in selected_photos:
+                source = pick_readable_source(
+                    photo_filename=photo.filename,
+                    original_path=photo.original_path,
+                    photographer_name=photographer_name,
+                )
+                if source is not None:
+                    zip_sources.append((source, photo.filename))
+            if not zip_sources:
+                raise HTTPException(status_code=404, detail="No readable selected files for archive")
+            temp_zip_path = build_batch_zip(zip_sources)
+            remove_photo_files(selected_photos, photographer_name)
+            remaining_active = list_active_photos_for_batch(photos, photographer_name)
+            if not remaining_active:
+                mark_batch_downloaded(session, batch_id)
+            session.commit()
+
+        filename = build_selected_archive_name(
+            photographer_name,
+            captured_at,
+            daily_selected_counter=selected_counter,
+            daily_sequence=daily_sequence,
+        )
         return FileResponse(
             path=temp_zip_path,
             media_type="application/zip",
@@ -294,12 +431,17 @@ def create_app(config: AppConfig) -> FastAPI:
             if batch is None:
                 raise HTTPException(status_code=404, detail="Batch not found")
             photos = get_batch_photos(session, batch.id)
-            if not photos:
-                raise HTTPException(status_code=404, detail="Batch has no photos")
             photographer = get_photographer_by_id(session, batch.photographer_id)
             photographer_name = photographer.folder_name if photographer else "unknown"
             remote_dir = f"{config.yandex_disk.remote_base_path.rstrip('/')}/{photographer_name}"
-            source_files = [(Path(photo.original_path), photo.filename) for photo in photos]
+            active_photos = list_active_photos_for_batch(photos, photographer_name)
+            source_files = [
+                (config.paths.incoming / photographer_name / photo.filename, photo.filename)
+                for photo in active_photos
+                if (config.paths.incoming / photographer_name / photo.filename).exists()
+            ]
+            if not source_files:
+                raise HTTPException(status_code=404, detail="Batch has no active files in incoming")
         try:
             uploader = YandexDiskUploader(config.yandex_disk)
             result = uploader.upload_batch_files(local_files=source_files, remote_dir=remote_dir)

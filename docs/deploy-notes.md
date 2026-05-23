@@ -669,3 +669,52 @@
   - `src/photofactory/api/static/bild-dashboard.html`
 - Verified served HTML contains new version marker.
 - User confirmed: issue resolved ("заработало").
+
+## 2026-05-23 — Product scenarios 1+2 rollout
+
+### Goal
+
+- Switch MVP into production mode for two workflows:
+  - oldschool (incoming + FileZilla + PWA notifications),
+  - dashboard-first (download all / selected from web cabinet).
+
+### Code changes deployed
+
+- Watcher logic (`src/photofactory/watcher/service.py`):
+  - no longer removes files from `incoming` on batch finalization;
+  - copies valid JPEGs to `originals` and writes to `backup` only when `batch.write_backup_copy=true`;
+  - auto-upload to Yandex now mirrors new incoming wave files;
+  - added persistent per-photographer watermark state to avoid re-finalizing old files still lying in `incoming`.
+- API (`src/photofactory/api/app.py`):
+  - `/api/batches` and `/api/batches/{id}` now show only active files still present in `incoming`;
+  - updated `/api/batches/{id}/download` to download active files and remove them from `incoming` after success;
+  - added `/api/batches/{id}/download-selected` for partial ZIP by checkbox selection;
+  - selected-download archive naming now includes daily global counter (`selected_<counter>`).
+- Frontend (`bild-dashboard.html/js`):
+  - removed filter strip and "cleanup/reset/refresh packages" controls;
+  - package card now has `Скачать все` and `Скачать выбранное`;
+  - each photo now has selection checkbox;
+  - cache-busting marker updated to `/bild-dashboard.js?v=20260523-1142`.
+- Config:
+  - added `batch.write_backup_copy` to config model/example.
+
+### Runtime actions on VPS
+
+- Synced code to `/opt/yauza-photofactory`.
+- Updated runtime config `/etc/yauza/config.yaml`:
+  - `batch.write_backup_copy: false`
+- Restarted services:
+  - `yauza-api` (active)
+  - `yauza-watcher` (active)
+
+### Smoke checks (VPS)
+
+- `GET /health` returns `{"status":"ok"}`.
+- `/bild` serves new script version marker (`v=20260523-1142`).
+- watcher smoke:
+  - incoming file remains after batch finalization (`incoming_exists=yes`);
+  - batch appears in API while file exists in `incoming`.
+- selected download smoke:
+  - `/api/batches/{id}/download-selected` returns ZIP;
+  - selected file removed from `incoming`;
+  - when package becomes empty in `incoming`, it disappears from `/api/batches`.

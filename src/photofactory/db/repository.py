@@ -240,3 +240,16 @@ def set_app_setting(session: Session, key: str, value: str) -> AppSetting:
         entity.updated_at = datetime.now(tz=timezone.utc)
     session.flush()
     return entity
+
+
+def increment_daily_counter(session: Session, *, key_prefix: str, day_key: str) -> int:
+    key = f"{key_prefix}.{day_key}"
+    current_raw = get_app_setting(session, key, default="0")
+    try:
+        current = int(current_raw)
+    except ValueError:
+        current = 0
+    next_value = current + 1
+    set_app_setting(session, key=key, value=str(next_value))
+    session.flush()
+    return next_value

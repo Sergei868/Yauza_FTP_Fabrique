@@ -19,8 +19,6 @@ from photofactory.db.repository import (
     create_batch_with_photos,
     create_in_app_batch_notification,
     get_app_setting,
-    get_batch_by_key,
-    get_photographer_by_id,
 )
 from photofactory.notifications.base import BatchNotification, Notifier, NullNotifier
 from photofactory.storage.yandex_disk import YandexDiskUploader
@@ -32,6 +30,7 @@ LOGGER = logging.getLogger(__name__)
 class FileEntry:
     path: Path
     mtime: float
+    mtime_ns: int
     size: int
 
 
@@ -67,16 +66,24 @@ class BatchWatcher:
             entries = self._collect_supported_files(photographer_dir)
             if not entries:
                 continue
-            newest_mtime = max(entry.mtime for entry in entries)
+            cutoff_ns = self._load_last_processed_mtime_ns(photographer_dir.name)
+            pending_entries = [entry for entry in entries if entry.mtime_ns > cutoff_ns]
+            if not pending_entries:
+                continue
+            newest_mtime = max(entry.mtime for entry in pending_entries)
             age_seconds = time.time() - newest_mtime
             if age_seconds < self.config.batch.silence_seconds:
                 continue
-            self._finalize_batch(photographer_dir, entries, int(age_seconds))
+            last_processed_ns = self._finalize_batch(photographer_dir, pending_entries, int(age_seconds))
+            if last_processed_ns > cutoff_ns:
+                self._store_last_processed_mtime_ns(photographer_dir.name, last_processed_ns)
 
     def _ensure_directories(self) -> None:
         self.config.paths.incoming.mkdir(parents=True, exist_ok=True)
         self.config.paths.originals.mkdir(parents=True, exist_ok=True)
-        self.config.paths.backup.mkdir(parents=True, exist_ok=True)
+        if self.config.batch.write_backup_copy:
+            self.config.paths.backup.mkdir(parents=True, exist_ok=True)
+        self._state_root().mkdir(parents=True, exist_ok=True)
 
     def _collect_supported_files(self, photographer_dir: Path) -> list[FileEntry]:
         entries: list[FileEntry] = []
@@ -86,10 +93,17 @@ class BatchWatcher:
             if item.suffix.lower() not in self.config.batch.allowed_extensions:
                 continue
             stat = item.stat()
-            entries.append(FileEntry(path=item, mtime=stat.st_mtime, size=stat.st_size))
+            entries.append(
+                FileEntry(
+                    path=item,
+                    mtime=stat.st_mtime,
+                    mtime_ns=stat.st_mtime_ns,
+                    size=stat.st_size,
+                )
+            )
         return entries
 
-    def _finalize_batch(self, photographer_dir: Path, entries: list[FileEntry], age_seconds: int) -> None:
+    def _finalize_batch(self, photographer_dir: Path, entries: list[FileEntry], age_seconds: int) -> int:
         photographer_name = photographer_dir.name
         batch_id = f"{datetime.now(tz=timezone.utc):%Y%m%d%H%M%S}-{uuid.uuid4().hex[:8]}"
 
@@ -103,13 +117,13 @@ class BatchWatcher:
         backup_dir = self.config.paths.backup / photographer_name / batch_id
 
         originals_dir.mkdir(parents=True, exist_ok=False)
-        backup_dir.mkdir(parents=True, exist_ok=False)
+        if self.config.batch.write_backup_copy:
+            backup_dir.mkdir(parents=True, exist_ok=False)
 
         moved_files: list[tuple[str, int]] = []
         broken_files_count = 0
         total_size = 0
         captured_at = datetime.now(tz=timezone.utc)
-        broken_dir = backup_dir / "broken"
 
         for entry in sorted(entries, key=lambda item: item.path.name.lower()):
             source = entry.path
@@ -117,18 +131,15 @@ class BatchWatcher:
                 LOGGER.warning("Skip disappeared file: %s", source)
                 continue
             if not self._is_likely_jpeg(source):
-                broken_dir.mkdir(parents=True, exist_ok=True)
-                broken_name = self._safe_unique_name(broken_dir, source.name)
-                shutil.move(source, broken_dir / broken_name)
                 broken_files_count += 1
                 continue
 
             destination_name = self._safe_unique_name(originals_dir, source.name)
             destination_original = originals_dir / destination_name
-            destination_backup = backup_dir / destination_name
-
-            shutil.copy2(source, destination_backup)
-            shutil.move(source, destination_original)
+            shutil.copy2(source, destination_original)
+            if self.config.batch.write_backup_copy:
+                destination_backup = backup_dir / destination_name
+                shutil.copy2(source, destination_backup)
             moved_files.append((destination_name, entry.size))
             total_size += entry.size
 
@@ -190,9 +201,8 @@ class BatchWatcher:
 
         try:
             self._maybe_upload_batch_to_yandex(
-                batch_key=batch_id,
-                originals_dir=originals_dir,
-                moved_files=moved_files,
+                photographer_name=photographer_name,
+                source_entries=entries,
             )
         except Exception:
             LOGGER.exception("Yandex auto-upload failed for batch_key=%s", batch_id)
@@ -204,6 +214,7 @@ class BatchWatcher:
             len(moved_files),
             total_size,
         )
+        return max((entry.mtime_ns for entry in entries), default=0)
 
     @staticmethod
     def _safe_unique_name(target_dir: Path, original_name: str) -> str:
@@ -237,11 +248,10 @@ class BatchWatcher:
     def _maybe_upload_batch_to_yandex(
         self,
         *,
-        batch_key: str,
-        originals_dir: Path,
-        moved_files: list[tuple[str, int]],
+        photographer_name: str,
+        source_entries: list[FileEntry],
     ) -> None:
-        if not moved_files or self.session_factory is None:
+        if not source_entries or self.session_factory is None:
             return
         if not self.config.yandex_disk.enabled:
             return
@@ -250,13 +260,8 @@ class BatchWatcher:
             auto_mode = get_app_setting(session, "yandex_disk.auto_upload_all", default="false")
             if auto_mode.lower() != "true":
                 return
-            batch = get_batch_by_key(session, batch_key)
-            if batch is None:
-                return
-            photographer = get_photographer_by_id(session, batch.photographer_id)
-            photographer_name = photographer.folder_name if photographer else "unknown"
         remote_dir = f"{self.config.yandex_disk.remote_base_path.rstrip('/')}/{photographer_name}"
-        source_files = [(originals_dir / name, name) for name, _ in moved_files]
+        source_files = [(entry.path, entry.path.name) for entry in source_entries if entry.path.exists()]
         uploader = YandexDiskUploader(self.config.yandex_disk)
         result = uploader.upload_batch_files(local_files=source_files, remote_dir=remote_dir)
         LOGGER.info(
@@ -264,3 +269,30 @@ class BatchWatcher:
             result.remote_path,
             result.uploaded_files,
         )
+
+    def _state_root(self) -> Path:
+        return self.config.paths.originals / ".watcher-state"
+
+    def _state_file(self, photographer_name: str) -> Path:
+        safe_name = photographer_name.replace("/", "_")
+        return self._state_root() / f"{safe_name}.json"
+
+    def _load_last_processed_mtime_ns(self, photographer_name: str) -> int:
+        state_file = self._state_file(photographer_name)
+        if not state_file.exists():
+            return 0
+        try:
+            payload = json.loads(state_file.read_text(encoding="utf-8"))
+            value = int(payload.get("last_processed_mtime_ns", 0))
+            return max(value, 0)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return 0
+
+    def _store_last_processed_mtime_ns(self, photographer_name: str, value: int) -> None:
+        state_file = self._state_file(photographer_name)
+        payload = {
+            "photographer": photographer_name,
+            "last_processed_mtime_ns": int(max(value, 0)),
+            "updated_at_utc": datetime.now(tz=timezone.utc).isoformat(),
+        }
+        state_file.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")

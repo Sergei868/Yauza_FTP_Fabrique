@@ -6,7 +6,6 @@ const state = {
   actionsInProgress: new Set(),
   imageObjectUrls: new Map(),
   originalObjectUrls: new Map(),
-  incomingPhotographers: [],
   activeTab: "packages",
   lastRenderSignature: "",
   lightbox: null,
@@ -18,12 +17,6 @@ const notificationsEl = document.getElementById("notifications");
 const batchesEl = document.getElementById("batches");
 const batchStatsEl = document.getElementById("batchStats");
 const autoYandexToggleEl = document.getElementById("autoYandexToggle");
-const searchInputEl = document.getElementById("searchInput");
-const photographerFilterEl = document.getElementById("photographerFilter");
-const dateFromEl = document.getElementById("dateFrom");
-const dateToEl = document.getElementById("dateTo");
-const refreshPackagesBtnEl = document.getElementById("refreshPackagesBtn");
-const cleanupProcessedBtnEl = document.getElementById("cleanupProcessedBtn");
 const tabButtons = [...document.querySelectorAll("[data-tab-target]")];
 const tabPanels = [...document.querySelectorAll("[data-tab-panel]")];
 const lightboxEl = document.getElementById("lightbox");
@@ -149,23 +142,32 @@ function isActionRunning(action, batchId) {
 function renderBatchGallery(batch, detail) {
   const images = detail.photos
     .map(
-      (photo, index) => `<button class="thumb-btn" type="button"
-        data-action="open-image"
-        data-batch-id="${esc(batch.id)}"
-        data-photo-index="${index}"
-        data-photo-id="${esc(photo.id)}"
-        data-original-src="${esc(photo.image_url)}"
-        data-filename="${esc(photo.filename)}"
-      ><img
-        data-photo-id="${esc(photo.id)}"
-        data-auth-src="${esc(photo.thumbnail_url || photo.image_url)}"
-        alt="${esc(photo.filename)}"
-        loading="lazy"
-        title="${esc(photo.filename)}"
-      /></button>`,
+      (photo, index) => `<div class="thumb-item">
+        <label class="thumb-select" title="Выбрать фото">
+          <input type="checkbox"
+            data-photo-checkbox="1"
+            data-batch-id="${esc(batch.id)}"
+            data-photo-id="${esc(photo.id)}" />
+        </label>
+        <button class="thumb-btn" type="button"
+          data-action="open-image"
+          data-batch-id="${esc(batch.id)}"
+          data-photo-index="${index}"
+          data-photo-id="${esc(photo.id)}"
+          data-original-src="${esc(photo.image_url)}"
+          data-filename="${esc(photo.filename)}"
+        ><img
+          data-photo-id="${esc(photo.id)}"
+          data-auth-src="${esc(photo.thumbnail_url || photo.image_url)}"
+          alt="${esc(photo.filename)}"
+          loading="lazy"
+          title="${esc(photo.filename)}"
+        /></button>
+      </div>`,
     )
     .join("");
-  const downloadBusy = isActionRunning("download", batch.id);
+  const downloadAllBusy = isActionRunning("download-all", batch.id);
+  const downloadSelectedBusy = isActionRunning("download-selected", batch.id);
   const yandexBusy = isActionRunning("yadisk", batch.id);
   return `
     <div class="batch-card" id="batch-${batch.id}">
@@ -180,7 +182,8 @@ function renderBatchGallery(batch, detail) {
         </div>
       </div>
       <div class="row">
-        <button data-action="download" data-batch-id="${batch.id}" ${downloadBusy ? "disabled" : ""}>${downloadBusy ? "Скачивание..." : "Скачать пакет"}</button>
+        <button data-action="download-all" data-batch-id="${batch.id}" ${downloadAllBusy ? "disabled" : ""}>${downloadAllBusy ? "Скачивание..." : "Скачать все"}</button>
+        <button data-action="download-selected" data-batch-id="${batch.id}" ${downloadSelectedBusy ? "disabled" : ""}>${downloadSelectedBusy ? "Скачивание..." : "Скачать выбранное"}</button>
         <button data-action="yadisk" data-batch-id="${batch.id}" ${yandexBusy ? "disabled" : ""}>${yandexBusy ? "Загрузка..." : "Загрузить на Я.Диск"}</button>
       </div>
       <div class="gallery">${images || '<span class="muted">В пачке нет валидных JPEG</span>'}</div>
@@ -197,29 +200,16 @@ async function fetchBatchDetail(batchId) {
 
 async function fetchBatchesAndRender() {
   const previousById = new Map(state.allBatches.map((batch) => [batch.id, batch]));
-  const [batches, incomingPhotographers] = await Promise.all([
-    apiJson("/api/batches?limit=50"),
-    fetchIncomingPhotographers(),
-  ]);
+  const batches = await apiJson("/api/batches?limit=50");
   state.allBatches = batches;
-  state.incomingPhotographers = incomingPhotographers;
-  syncPhotographerFilterOptions();
-
-  const filtered = applyBatchFilters(batches);
-  renderBatchStats(batches, filtered);
+  renderBatchStats(batches, batches);
   const renderSignature = JSON.stringify({
-    ids: filtered.map((item) => item.id),
-    status: filtered.map((item) => item.status),
-    files: filtered.map((item) => item.file_count),
-    broken: filtered.map((item) => item.broken_files_count),
-    f: [
-      searchInputEl.value.trim(),
-      photographerFilterEl.value,
-      dateFromEl.value,
-      dateToEl.value,
-    ],
+    ids: batches.map((item) => item.id),
+    status: batches.map((item) => item.status),
+    files: batches.map((item) => item.file_count),
+    broken: batches.map((item) => item.broken_files_count),
   });
-  if (!filtered.length) {
+  if (!batches.length) {
     batchesEl.innerHTML = '<div class="muted">Пока нет пачек.</div>';
     state.lastRenderSignature = renderSignature;
     return;
@@ -228,7 +218,7 @@ async function fetchBatchesAndRender() {
     return;
   }
   const rendered = [];
-  for (const batch of filtered) {
+  for (const batch of batches) {
     const prev = previousById.get(batch.id);
     const changed = !prev || prev.file_count !== batch.file_count || prev.broken_files_count !== batch.broken_files_count;
     if (changed) state.batchCache.delete(batch.id);
@@ -277,24 +267,6 @@ async function hydrateBatchImages() {
   await Promise.all(workers);
 }
 
-function syncPhotographerFilterOptions() {
-  const current = photographerFilterEl.value;
-  const names = state.incomingPhotographers.map((item) => item.folder_name).sort((a, b) => a.localeCompare(b));
-  photographerFilterEl.innerHTML = '<option value="">Все фотографы</option>';
-  for (const name of names) {
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    photographerFilterEl.appendChild(option);
-  }
-  if (names.includes(current)) photographerFilterEl.value = current;
-}
-
-async function fetchIncomingPhotographers() {
-  const items = await apiJson("/api/incoming/photographers");
-  return Array.isArray(items) ? items : [];
-}
-
 function renderBatchStats(allBatches, filteredBatches) {
   const totalBroken = filteredBatches.reduce((acc, item) => acc + item.broken_files_count, 0);
   const chips = [
@@ -303,41 +275,6 @@ function renderBatchStats(allBatches, filteredBatches) {
     `Битых в фильтре: ${totalBroken}`,
   ];
   batchStatsEl.innerHTML = chips.map((item) => `<span class="chip">${esc(item)}</span>`).join("");
-}
-
-function isInDateRange(batch, fromRaw, toRaw) {
-  const d = new Date(batch.captured_at);
-  if (Number.isNaN(d.getTime())) return false;
-  if (fromRaw) {
-    const from = new Date(`${fromRaw}T00:00:00`);
-    if (d < from) return false;
-  }
-  if (toRaw) {
-    const to = new Date(`${toRaw}T23:59:59`);
-    if (d > to) return false;
-  }
-  return true;
-}
-
-function applyBatchFilters(batches) {
-  const searchRaw = searchInputEl.value.trim().toLowerCase();
-  const photographerRaw = photographerFilterEl.value.trim().toLowerCase();
-  const fromRaw = dateFromEl.value;
-  const toRaw = dateToEl.value;
-  return batches.filter((batch) => {
-    if (photographerRaw && batch.photographer.toLowerCase() !== photographerRaw) return false;
-    if (!isInDateRange(batch, fromRaw, toRaw)) return false;
-    if (!searchRaw) return true;
-    const haystack = `${batch.photographer} ${batch.batch_key} ${batch.archive_name}`.toLowerCase();
-    return haystack.includes(searchRaw);
-  });
-}
-
-async function cleanupProcessedBatches() {
-  if (!state.token) throw new Error("Сначала выполните вход");
-  const result = await apiJson("/api/batches/cleanup-processed", { method: "POST" });
-  setStatus(`Скрыто старых/обработанных пачек: ${result.updated}`);
-  await fetchBatchesAndRender();
 }
 
 async function fetchBlobObjectUrl(url, cacheMap, cacheKey) {
@@ -422,13 +359,10 @@ async function downloadLightboxOriginal() {
   link.click();
 }
 
-function resetFilters() {
-  searchInputEl.value = "";
-  photographerFilterEl.value = "";
-  dateFromEl.value = "";
-  dateToEl.value = "";
-  state.lastRenderSignature = "";
-  fetchBatchesAndRender().catch((e) => setStatus(String(e), true));
+function getSelectedPhotoIds(batchId) {
+  return [...batchesEl.querySelectorAll(`input[data-photo-checkbox="1"][data-batch-id="${batchId}"]:checked`)]
+    .map((el) => el.getAttribute("data-photo-id"))
+    .filter((item) => !!item);
 }
 
 async function login() {
@@ -467,10 +401,6 @@ function logout() {
   notificationsEl.innerHTML = "";
   batchesEl.innerHTML = "";
   autoYandexToggleEl.checked = false;
-  searchInputEl.value = "";
-  photographerFilterEl.innerHTML = '<option value="">Все фотографы</option>';
-  dateFromEl.value = "";
-  dateToEl.value = "";
   batchStatsEl.innerHTML = "";
   metaEl.textContent = "";
   setStatus("Выход выполнен");
@@ -624,7 +554,7 @@ function setButtonTempState(action, batchId, label) {
 
 function downloadBatch(batchId) {
   if (!state.token) throw new Error("Сначала выполните вход");
-  withActionState("download", batchId, true);
+  withActionState("download-all", batchId, true);
   fetchBatchesAndRender().catch(() => {});
   const url = `/api/batches/${batchId}/download`;
   fetch(url, { headers: getHeaders() })
@@ -643,12 +573,51 @@ function downloadBatch(batchId) {
       link.download = filename;
       link.click();
       URL.revokeObjectURL(objectUrl);
-      setButtonTempState("download", batchId, "Готово");
-      setStatus(`Пакет скачан и убран из активного списка: ${filename}`);
+      setButtonTempState("download-all", batchId, "Готово");
+      setStatus(`Скачаны все фото пакета: ${filename}`);
     })
     .catch((err) => setStatus(`Ошибка скачивания: ${String(err)}`, true))
     .finally(() => {
-      withActionState("download", batchId, false);
+      withActionState("download-all", batchId, false);
+      fetchBatchesAndRender().catch(() => {});
+    });
+}
+
+function downloadSelectedBatch(batchId) {
+  if (!state.token) throw new Error("Сначала выполните вход");
+  const selectedPhotoIds = getSelectedPhotoIds(batchId);
+  if (!selectedPhotoIds.length) {
+    setStatus("Выберите хотя бы одну фотографию для скачивания", true);
+    return;
+  }
+  withActionState("download-selected", batchId, true);
+  fetchBatchesAndRender().catch(() => {});
+  fetch(`/api/batches/${batchId}/download-selected`, {
+    method: "POST",
+    headers: getHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ photo_ids: selectedPhotoIds }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `download failed ${response.status}`);
+      }
+      const blob = await response.blob();
+      const contentDisposition = response.headers.get("Content-Disposition") || "";
+      const match = /filename="([^"]+)"/.exec(contentDisposition);
+      const filename = match ? match[1] : `batch-${batchId}-selected.zip`;
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+      setButtonTempState("download-selected", batchId, "Готово");
+      setStatus(`Скачаны выбранные фото: ${filename}`);
+    })
+    .catch((err) => setStatus(`Ошибка скачивания выбранного: ${String(err)}`, true))
+    .finally(() => {
+      withActionState("download-selected", batchId, false);
       fetchBatchesAndRender().catch(() => {});
     });
 }
@@ -684,13 +653,6 @@ bindIfExists(document.getElementById("disablePushBtn"), "click", () => disablePu
 bindIfExists(document.getElementById("testPushBtn"), "click", () => sendTestPush().catch((e) => setStatus(String(e), true)));
 bindIfExists(document.getElementById("realBatchBtn"), "click", () => triggerRealBatch().catch((e) => setStatus(String(e), true)));
 bindIfExists(document.getElementById("markReadBtn"), "click", () => markRead().catch((e) => setStatus(String(e), true)));
-bindIfExists(document.getElementById("resetFiltersBtn"), "click", resetFilters);
-bindIfExists(refreshPackagesBtnEl, "click", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
-bindIfExists(cleanupProcessedBtnEl, "click", () => cleanupProcessedBatches().catch((e) => setStatus(String(e), true)));
-bindIfExists(searchInputEl, "input", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
-bindIfExists(photographerFilterEl, "change", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
-bindIfExists(dateFromEl, "change", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
-bindIfExists(dateToEl, "change", () => fetchBatchesAndRender().catch((e) => setStatus(String(e), true)));
 for (const btn of tabButtons) {
   btn.addEventListener("click", () => setActiveTab(btn.getAttribute("data-tab-target")));
 }
@@ -727,8 +689,12 @@ bindIfExists(batchesEl, "click", (event) => {
   const action = actionEl.getAttribute("data-action");
   const batchId = actionEl.getAttribute("data-batch-id");
   if (!action || !batchId) return;
-  if (action === "download") {
+  if (action === "download-all") {
     downloadBatch(batchId);
+    return;
+  }
+  if (action === "download-selected") {
+    downloadSelectedBatch(batchId);
     return;
   }
   if (action === "yadisk") {
