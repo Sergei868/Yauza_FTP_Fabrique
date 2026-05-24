@@ -1,15 +1,15 @@
 self.addEventListener("push", (event) => {
-  let payload = { title: "Photofactory", body: "Новое уведомление" };
+  let payload = { title: "Bildboard Yauza", body: "Новое уведомление" };
   if (event.data) {
     try {
       payload = event.data.json();
     } catch (_err) {
-      payload = { title: "Photofactory", body: event.data.text() };
+      payload = { title: "Bildboard Yauza", body: event.data.text() };
     }
   }
 
   event.waitUntil(
-    self.registration.showNotification(payload.title || "Photofactory", {
+    self.registration.showNotification(payload.title || "Bildboard Yauza", {
       body: payload.body || "Новое уведомление",
       data: payload,
       icon: "/favicon.ico",
@@ -19,5 +19,16 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  event.waitUntil(clients.openWindow("/pwa/test"));
+  const data = event.notification.data || {};
+  const targetPath = typeof data.url === "string" && data.url.trim() ? data.url : "/bild";
+  event.waitUntil((async () => {
+    const allClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of allClients) {
+      if ("focus" in client && client.url.includes(targetPath)) {
+        await client.focus();
+        return;
+      }
+    }
+    await clients.openWindow(targetPath);
+  })());
 });

@@ -1041,3 +1041,28 @@ sudo sha256sum "$CHECKPOINT_DIR/config.yaml" "$CHECKPOINT_DIR/yauza-api.service"
   - backup dir: `/var/backups/yauza/checkpoints/20260524_132959`
   - includes: `config.yaml`, `yauza-api.service`, `yauza-watcher.service`, `db.dump`, `SHA256SUMS.txt`
   - `db.dump` created via `sudo -u postgres pg_dump -Fc <db_name>`
+
+## 2026-05-24 — PWA push UX fix (open Bildboard + new message format)
+
+### Changes deployed
+
+- Fixed service worker click routing:
+  - push click no longer opens `/pwa/test`,
+  - now opens/focuses `/bild` (with payload URL fallback to `/bild`).
+- Updated push payload format for real batch notifications:
+  - title: `Bildboard Yauza`
+  - body: `<photographer> <N> файлов <M> МБ` and adds `<Z> битых` only when broken files exist.
+- Extended notification payload contract:
+  - added `broken_files_count` in `BatchNotification`,
+  - watcher now passes broken count to notifier.
+- Updated test push defaults in dashboard/pwa test page to match new style.
+- Bumped dashboard cache marker:
+  - `bild-dashboard.js?v=20260524-1649`
+
+### Verification
+
+- `yauza-api` and `yauza-watcher` restarted successfully (`active`).
+- Deployed static and backend files verified in `/opt/yauza-photofactory/src/...`:
+  - `sw.js` contains `/bild` target and URL-based routing,
+  - `bild-dashboard.html` serves new JS marker,
+  - `notifications/pwa.py` contains new body formatting.

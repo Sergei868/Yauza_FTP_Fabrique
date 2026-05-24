@@ -204,6 +204,7 @@ class BatchWatcher:
                     batch_id=db_batch_id,
                     photographer=photographer_name,
                     file_count=len(moved_files),
+                    broken_files_count=broken_files_count,
                     total_size_bytes=total_size,
                     base_url=self.config.app.base_url,
                 )

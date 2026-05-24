@@ -52,7 +52,7 @@ async function subscribe() {
   const permission = await Notification.requestPermission();
   if (permission !== "granted") throw new Error(`Notification permission = ${permission}`);
 
-  const reg = await navigator.serviceWorker.register("/sw.js");
+  const reg = await navigator.serviceWorker.register("/sw.js?v=20260524-1649");
   const keyData = await fetchJson("/api/pwa/public-key");
   if (!keyData.vapid_public_key) throw new Error("Публичный VAPID ключ не настроен на сервере");
 
@@ -97,8 +97,8 @@ async function unsubscribe() {
 
 async function sendTestPush() {
   if (!state.token) throw new Error("Сначала выполните логин");
-  const title = document.getElementById("pushTitle").value || "Photofactory test";
-  const body = document.getElementById("pushBody").value || "Push";
+  const title = document.getElementById("pushTitle").value || "Bildboard Yauza";
+  const body = document.getElementById("pushBody").value || "ТестФотограф 5 файлов 12 МБ 1 битых";
   const result = await fetchJson("/api/pwa/test-push", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

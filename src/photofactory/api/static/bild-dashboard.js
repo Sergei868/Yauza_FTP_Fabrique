@@ -792,7 +792,7 @@ async function enablePush() {
   const permission = await Notification.requestPermission();
   if (permission !== "granted") throw new Error(`Notification permission: ${permission}`);
 
-  const reg = await navigator.serviceWorker.register("/sw.js");
+  const reg = await navigator.serviceWorker.register("/sw.js?v=20260524-1649");
   const keyData = await apiJson("/api/pwa/public-key");
   if (!keyData.vapid_public_key) throw new Error("VAPID public key не настроен");
 
@@ -838,7 +838,7 @@ async function sendTestPush() {
   const result = await apiJson("/api/pwa/test-push", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title: "Bild dashboard", body: "Тестовое push-уведомление" }),
+    body: JSON.stringify({ title: "Bildboard Yauza", body: "ТестФотограф 5 файлов 12 МБ 1 битых" }),
   });
   setStatus(`Test push: sent=${result.sent}, failed=${result.failed}`);
 }

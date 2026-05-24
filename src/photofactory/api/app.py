@@ -1198,6 +1198,7 @@ if __name__ == "__main__":
                 "type": "test_push",
                 "title": payload.title,
                 "body": payload.body,
+                "url": "/bild",
             }
         )
         return PwaTestPushResponse(

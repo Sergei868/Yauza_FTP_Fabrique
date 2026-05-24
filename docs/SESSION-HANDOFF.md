@@ -157,3 +157,10 @@ curl -sS -H "Authorization: Bearer ${TOKEN}" "http://127.0.0.1:8000/api/yandex/a
 - git checkpoint зафиксирован: commit `74a4c90`, tag `pre-audit-20260524-1630`, push выполнен;
 - локальный `git bundle` создан: `backups/checkpoints/20260524_162209/pre-audit.bundle`;
 - VPS backup завершён: `/var/backups/yauza/checkpoints/20260524_132959` (runtime + DB dump + checksums).
+
+## 10) Аварийный откат
+
+- Пошаговый чеклист восстановления хранится в `docs/RECOVERY-CHECKLIST.md`.
+- Используемый эталон:
+  - git tag: `pre-audit-20260524-1630`
+  - backup dir: `/var/backups/yauza/checkpoints/20260524_132959`

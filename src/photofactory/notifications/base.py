@@ -14,6 +14,7 @@ class BatchNotification:
     batch_id: str | None
     photographer: str
     file_count: int
+    broken_files_count: int
     total_size_bytes: int
     base_url: str
 

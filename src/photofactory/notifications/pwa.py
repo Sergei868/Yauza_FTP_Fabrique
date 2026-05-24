@@ -34,16 +34,18 @@ class PwaNotifier:
         self.vapid_subject = vapid_subject
 
     def notify_batch_finalized(self, payload: BatchNotification) -> None:
+        total_mb = round(payload.total_size_bytes / (1024 * 1024))
+        body = f"{payload.photographer} {payload.file_count} файлов {total_mb} МБ"
+        if payload.broken_files_count > 0:
+            body += f" {payload.broken_files_count} битых"
         result = self.send_raw_payload(
             {
                 "type": "batch_finalized",
-                "title": "Новая пачка",
-                "body": (
-                    f"{payload.photographer}: {payload.file_count} фото, "
-                    f"{payload.total_size_bytes} байт"
-                ),
+                "title": "Bildboard Yauza",
+                "body": body,
                 "batch_id": payload.batch_id,
                 "batch_key": payload.batch_key,
+                "url": "/bild",
             }
         )
         LOGGER.info(

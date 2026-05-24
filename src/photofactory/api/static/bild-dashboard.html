@@ -344,6 +344,15 @@
     .double-gap-bottom {
       margin-bottom: 1.2rem;
     }
+    .triple-gap-bottom {
+      margin-bottom: 1.8rem;
+    }
+    .quad-gap-bottom {
+      margin-bottom: 4.8rem;
+    }
+    .quint-gap-top {
+      margin-top: 6rem;
+    }
     .checkbox-row input[type="checkbox"] {
       min-width: auto;
       width: 16px;
@@ -570,7 +579,7 @@
         <button id="realBatchBtn">Проверка реальной пачкой</button>
         <button id="refreshBtn">Обновить всё</button>
       </div>
-      <div class="settings-archive-row double-gap-top">
+      <div class="settings-archive-row quint-gap-top">
         <label for="archiveTtlInput">Время жизни локального архива (часов):</label>
         <div class="number-stepper">
           <input id="archiveTtlInput" type="number" min="1" step="1" />
@@ -579,6 +588,8 @@
             <button id="archiveTtlDownBtn" class="step-btn step-down" type="button" aria-label="Уменьшить время жизни"></button>
           </div>
         </div>
+      </div>
+      <div class="settings-archive-row">
         <label for="archiveLimitInput">Лимит архива (ГБ):</label>
         <div class="number-stepper">
           <input id="archiveLimitInput" type="number" min="1" step="1" />
@@ -587,6 +598,8 @@
             <button id="archiveLimitDownBtn" class="step-btn step-down" type="button" aria-label="Уменьшить лимит"></button>
           </div>
         </div>
+      </div>
+      <div class="settings-archive-row quad-gap-bottom">
         <button id="saveArchiveSettingsBtn">Сохранить настройки архива</button>
         <button id="clearArchiveBtn">Очистить архив</button>
       </div>
@@ -748,6 +761,6 @@
       </div>
     </div>
   </div>
-  <script src="/bild-dashboard.js?v=20260524-2155"></script>
+  <script src="/bild-dashboard.js?v=20260524-1656"></script>
 </body>
 </html>
