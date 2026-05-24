@@ -1066,3 +1066,136 @@ sudo sha256sum "$CHECKPOINT_DIR/config.yaml" "$CHECKPOINT_DIR/yauza-api.service"
   - `sw.js` contains `/bild` target and URL-based routing,
   - `bild-dashboard.html` serves new JS marker,
   - `notifications/pwa.py` contains new body formatting.
+
+## 2026-05-24 — Audit v1 hardening (secrets + watcher resilience)
+
+### Changes deployed
+
+- Admin settings API no longer returns raw secret values:
+  - `GET /api/admin/settings` now returns usernames and `*_set` flags only.
+  - passwords/tokens in response are always `null`.
+- Frontend status text updated to clarify hidden secrets behavior.
+- Watcher loop hardened:
+  - `run_forever()` now catches iteration errors and logs them,
+  - service keeps running instead of terminating on single-cycle exceptions.
+
+### Verification
+
+- `yauza-api` and `yauza-watcher` restarted after deploy.
+- Manual API check confirms admin settings endpoint does not leak secret values.
+
+## 2026-05-24 — Controlled admin secret reveal (60s)
+
+### Changes deployed
+
+- Added secure reveal endpoint:
+  - `POST /api/admin/settings/reveal-secrets`
+  - requires admin JWT + admin password confirmation in request body.
+  - response includes `Cache-Control: no-store` and `Pragma: no-cache`.
+- Dashboard admin UI:
+  - new button `Показать секреты на 60 сек`,
+  - secrets are shown temporarily and auto-cleared after TTL.
+- Default admin settings load remains safe:
+  - secrets are hidden by default in `/api/admin/settings`.
+
+### Verification
+
+- Endpoint is available in API and wired in dashboard JS.
+- Dashboard cache marker updated:
+  - `bild-dashboard.js?v=20260524-1732`
+
+## 2026-05-24 — Security mini-audit quick hardening
+
+### Changes deployed
+
+- Restricted dev smoke endpoint to admin only:
+  - `POST /api/dev/smoke-batch` now requires `require_admin`.
+- Added audit log trail for secret reveal endpoint:
+  - logs denied and granted attempts with username and client IP.
+- Hardened filesystem permissions for backup artifacts:
+  - `/var/backups/yauza` and subdirs -> `750` (`root:yauza`)
+  - files in checkpoints -> `640` (`root:yauza`)
+  - includes `db.dump`, `config.yaml`, `SHA256SUMS.txt`, service snapshots.
+
+### Verification
+
+- `yauza-api` restarted and active.
+- Deployed API file contains:
+  - `Depends(require_admin(config))` for `create_smoke_batch`,
+  - `Admin secret reveal denied/granted` audit log messages.
+- VPS permissions confirmed:
+  - backup dirs are not world-readable,
+  - dump/config files are not world-readable.
+
+## 2026-05-24 — Performance hardening #1 (Yandex upload path)
+
+### Changes deployed
+
+- Optimized `YandexDiskUploader` for high-flow workloads:
+  - switched from `file_handle.read()` (whole-file in memory) to chunked streaming upload,
+  - re-used a single `httpx.Client` per batch upload instead of per-request top-level calls,
+  - kept existing API behavior and response contract unchanged.
+
+### Why it matters
+
+- Lower peak RAM usage when processing many large files.
+- Lower connection overhead (fewer TCP/TLS setup costs) on continuous upload streams.
+- Better stability under several photographers uploading in parallel.
+
+### Verification
+
+- `yauza-api` and `yauza-watcher` restarted and `active`.
+- Deployed file markers confirmed on VPS:
+  - chunk iterator `_iter_file_chunks`,
+  - shared client context for upload batch.
+
+## 2026-05-24 — Performance hardening #2 (archive API path)
+
+### Changes deployed
+
+- Reduced archive endpoint CPU/IO overhead:
+  - added cleanup throttling (`ARCHIVE_CLEANUP_MIN_INTERVAL_SECONDS = 15`) to avoid full cleanup scans on every archive request burst,
+  - replaced N+1 photo loading with batched photo query:
+    - new repository helper `list_photos_for_batch_ids(...)`,
+    - `archive/usage` and `archive/batches` now prefetch photos in one query pass.
+
+### Why it matters
+
+- Lower DB pressure when dashboard polls archive endpoints frequently.
+- Less filesystem churn from repeated cleanup checks in short intervals.
+- Better response stability under continuous multi-photographer flow.
+
+### Verification
+
+- `yauza-api` restarted and active.
+- Deployed markers confirmed:
+  - `maybe_cleanup_expired_archive` in API,
+  - `list_photos_for_batch_ids` in repository,
+  - `archive/batches` uses prefetched `photos_by_batch`.
+
+## 2026-05-24 — Performance hardening #3 (packages API/UI N+1 cut)
+
+### Changes deployed
+
+- Added optional bulk photo payload in batch list API:
+  - `GET /api/batches?include_photos=true`
+  - `BatchListItem` now may include `photos` for active files.
+- Dashboard packages tab switched to bulk mode:
+  - now loads packages + photo metadata in one request,
+  - removed per-batch detail waterfall for initial render.
+- Updated dashboard cache marker:
+  - `bild-dashboard.js?v=20260524-1802`
+
+### Why it matters
+
+- Dramatically fewer API round-trips under high package counts (no `N+1` batch detail fetch pattern).
+- Faster first paint of package cards when several photographers upload concurrently.
+- Lower API CPU and DB overhead during frequent polling cycles.
+
+### Verification
+
+- `yauza-api` restarted and active.
+- VPS code markers confirmed:
+  - API has `include_photos` switch and `BatchListPhotoItem`,
+  - frontend calls `/api/batches?limit=50&include_photos=true`,
+  - HTML serves JS marker `v=20260524-1802`.

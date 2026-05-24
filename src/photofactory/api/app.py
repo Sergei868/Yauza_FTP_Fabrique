@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+import hmac
 import json
+import logging
 import os
 from pathlib import Path
 import subprocess
+from threading import Lock
+import time
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import FileResponse
 from PIL import Image, ImageOps
@@ -18,6 +22,8 @@ from starlette.background import BackgroundTask
 from photofactory.api.auth import AuthUser, create_access_token, require_admin, require_auth
 from photofactory.batches import build_archive_name, build_batch_zip, build_selected_archive_name
 from photofactory.api.schemas import (
+    AdminRevealSecretsRequest,
+    AdminRevealSecretsResponse,
     AdminSettingsResponse,
     AdminSettingsUpdateRequest,
     AdminApplyFtpResponse,
@@ -31,6 +37,7 @@ from photofactory.api.schemas import (
     BatchCleanupResponse,
     BatchDetail,
     BatchListItem,
+    BatchListPhotoItem,
     BatchPhotoItem,
     BatchSelectedDownloadRequest,
     HealthResponse,
@@ -69,6 +76,7 @@ from photofactory.db.repository import (
     delete_all_notifications,
     increment_daily_counter,
     list_recent_notifications,
+    list_photos_for_batch_ids,
     list_recent_batches,
     set_archive_limit_gb,
     set_archive_retention_hours,
@@ -81,7 +89,9 @@ from photofactory.storage.yandex_disk import YandexDiskUploader
 STATIC_DIR = Path(__file__).parent / "static"
 THUMBNAIL_SIZE = 320
 THUMBNAIL_QUALITY = 72
+LOGGER = logging.getLogger(__name__)
 ARCHIVE_TTL_OPTIONS_HOURS = [1, 2, 3, 4, 5, 6, 8, 12, 24, 36]
+ARCHIVE_CLEANUP_MIN_INTERVAL_SECONDS = 15
 SETTING_AUTH_BILD_USERNAME = "auth.bild.username"
 SETTING_AUTH_BILD_PASSWORD = "auth.bild.password"
 SETTING_AUTH_ADMIN_USERNAME = "auth.admin.username"
@@ -97,6 +107,8 @@ SETTING_YADISK_REMOTE_BASE = "yandex_disk.remote_base_path.override"
 def create_app(config: AppConfig) -> FastAPI:
     session_factory = build_session_factory(config)
     app = FastAPI(title="Yauza Photofactory API", version="0.1.0")
+    archive_cleanup_lock = Lock()
+    last_archive_cleanup_monotonic = 0.0
     previews_root = config.paths.originals.parent / "previews"
     try:
         previews_root.mkdir(parents=True, exist_ok=True)
@@ -172,13 +184,25 @@ def create_app(config: AppConfig) -> FastAPI:
 
     def calculate_archive_usage_bytes(session) -> int:
         total = 0
-        for batch in list_archive_batches(session, limit=2000):
-            photos = get_batch_photos(session, batch.id)
-            for photo in photos:
-                source = Path(photo.original_path)
-                if source.exists():
-                    total += source.stat().st_size
+        batches = list_archive_batches(session, limit=2000)
+        photos = list_photos_for_batch_ids(session, [batch.id for batch in batches])
+        for photo in photos:
+            source = Path(photo.original_path)
+            if source.exists():
+                total += source.stat().st_size
         return total
+
+    def maybe_cleanup_expired_archive(session) -> tuple[int, int, int]:
+        nonlocal last_archive_cleanup_monotonic
+        now_mono = time.monotonic()
+        should_run = False
+        with archive_cleanup_lock:
+            if now_mono - last_archive_cleanup_monotonic >= ARCHIVE_CLEANUP_MIN_INTERVAL_SECONDS:
+                last_archive_cleanup_monotonic = now_mono
+                should_run = True
+        if not should_run:
+            return 0, 0, 0
+        return cleanup_expired_archive(session)
 
     def cleanup_expired_archive(session) -> tuple[int, int, int]:
         now = datetime.now(tz=timezone.utc)
@@ -342,6 +366,45 @@ if __name__ == "__main__":
             details = (result.stderr or result.stdout or "unknown error").strip()
             raise HTTPException(status_code=500, detail=f"FTP apply failed: {details}")
 
+    def build_admin_settings_response(session) -> AdminSettingsResponse:
+        auth_values = get_runtime_auth_credentials(session)
+        ftp_bild_username = get_setting_value(session, SETTING_FTP_BILD_USERNAME, "bild_ftp")
+        ftp_bild_password = get_setting_value(session, SETTING_FTP_BILD_PASSWORD, "")
+        ftp_photographer_username = get_setting_value(session, SETTING_FTP_PHOTOGRAPHER_USERNAME, "upload")
+        ftp_photographer_password = get_setting_value(session, SETTING_FTP_PHOTOGRAPHER_PASSWORD, "")
+        yandex_token = get_setting_value(session, SETTING_YADISK_OAUTH_TOKEN, config.yandex_disk.oauth_token)
+        yandex_remote_base = get_setting_value(session, SETTING_YADISK_REMOTE_BASE, config.yandex_disk.remote_base_path)
+        # Security hardening: never return raw secret values in API responses.
+        return AdminSettingsResponse(
+            bild_username=auth_values["bild_username"],
+            bild_password=None,
+            admin_username=auth_values["admin_username"],
+            admin_password=None,
+            ftp_bild_username=ftp_bild_username,
+            ftp_bild_password=None,
+            ftp_bild_password_set=bool(ftp_bild_password),
+            ftp_photographer_username=ftp_photographer_username,
+            ftp_photographer_password=None,
+            ftp_photographer_password_set=bool(ftp_photographer_password),
+            yandex_token_set=bool(yandex_token),
+            yandex_oauth_token=None,
+            yandex_remote_base_path=yandex_remote_base,
+        )
+
+    def build_admin_reveal_response(session) -> AdminRevealSecretsResponse:
+        auth_values = get_runtime_auth_credentials(session)
+        ftp_bild_password = get_setting_value(session, SETTING_FTP_BILD_PASSWORD, "")
+        ftp_photographer_password = get_setting_value(session, SETTING_FTP_PHOTOGRAPHER_PASSWORD, "")
+        yandex_token = get_setting_value(session, SETTING_YADISK_OAUTH_TOKEN, config.yandex_disk.oauth_token)
+        return AdminRevealSecretsResponse(
+            bild_password=auth_values["bild_password"] or None,
+            admin_password=auth_values["admin_password"] or None,
+            ftp_bild_password=ftp_bild_password or None,
+            ftp_photographer_password=ftp_photographer_password or None,
+            yandex_oauth_token=yandex_token or None,
+            expires_in_seconds=60,
+        )
+
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         return HealthResponse(status="ok")
@@ -393,28 +456,7 @@ if __name__ == "__main__":
     @app.get("/api/admin/settings", response_model=AdminSettingsResponse)
     def get_admin_settings(_: AuthUser = Depends(require_admin(config))) -> AdminSettingsResponse:
         with session_factory() as session:
-            auth_values = get_runtime_auth_credentials(session)
-            ftp_bild_username = get_setting_value(session, SETTING_FTP_BILD_USERNAME, "bild_ftp")
-            ftp_bild_password = get_setting_value(session, SETTING_FTP_BILD_PASSWORD, "")
-            ftp_photographer_username = get_setting_value(session, SETTING_FTP_PHOTOGRAPHER_USERNAME, "upload")
-            ftp_photographer_password = get_setting_value(session, SETTING_FTP_PHOTOGRAPHER_PASSWORD, "")
-            yandex_token = get_setting_value(session, SETTING_YADISK_OAUTH_TOKEN, config.yandex_disk.oauth_token)
-            yandex_remote_base = get_setting_value(session, SETTING_YADISK_REMOTE_BASE, config.yandex_disk.remote_base_path)
-        return AdminSettingsResponse(
-            bild_username=auth_values["bild_username"],
-            bild_password=auth_values["bild_password"],
-            admin_username=auth_values["admin_username"],
-            admin_password=auth_values["admin_password"],
-            ftp_bild_username=ftp_bild_username,
-            ftp_bild_password=ftp_bild_password,
-            ftp_bild_password_set=bool(ftp_bild_password),
-            ftp_photographer_username=ftp_photographer_username,
-            ftp_photographer_password=ftp_photographer_password,
-            ftp_photographer_password_set=bool(ftp_photographer_password),
-            yandex_token_set=bool(yandex_token),
-            yandex_oauth_token=yandex_token,
-            yandex_remote_base_path=yandex_remote_base,
-        )
+            return build_admin_settings_response(session)
 
     @app.post("/api/admin/settings", response_model=AdminSettingsResponse)
     def update_admin_settings(
@@ -459,30 +501,35 @@ if __name__ == "__main__":
             if payload.yandex_remote_base_path is not None and payload.yandex_remote_base_path.strip():
                 set_app_setting(session, key=SETTING_YADISK_REMOTE_BASE, value=payload.yandex_remote_base_path.strip())
             session.commit()
+            return build_admin_settings_response(session)
 
+    @app.post("/api/admin/settings/reveal-secrets", response_model=AdminRevealSecretsResponse)
+    def reveal_admin_secrets(
+        payload: AdminRevealSecretsRequest,
+        request: Request,
+        response: Response,
+        admin_user: AuthUser = Depends(require_admin(config)),
+    ) -> AdminRevealSecretsResponse:
+        with session_factory() as session:
             auth_values = get_runtime_auth_credentials(session)
-            ftp_bild_username = get_setting_value(session, SETTING_FTP_BILD_USERNAME, "bild_ftp")
-            ftp_bild_password = get_setting_value(session, SETTING_FTP_BILD_PASSWORD, "")
-            ftp_photographer_username = get_setting_value(session, SETTING_FTP_PHOTOGRAPHER_USERNAME, "upload")
-            ftp_photographer_password = get_setting_value(session, SETTING_FTP_PHOTOGRAPHER_PASSWORD, "")
-            yandex_token = get_setting_value(session, SETTING_YADISK_OAUTH_TOKEN, config.yandex_disk.oauth_token)
-            yandex_remote_base = get_setting_value(session, SETTING_YADISK_REMOTE_BASE, config.yandex_disk.remote_base_path)
-
-        return AdminSettingsResponse(
-            bild_username=auth_values["bild_username"],
-            bild_password=auth_values["bild_password"],
-            admin_username=auth_values["admin_username"],
-            admin_password=auth_values["admin_password"],
-            ftp_bild_username=ftp_bild_username,
-            ftp_bild_password=ftp_bild_password,
-            ftp_bild_password_set=bool(ftp_bild_password),
-            ftp_photographer_username=ftp_photographer_username,
-            ftp_photographer_password=ftp_photographer_password,
-            ftp_photographer_password_set=bool(ftp_photographer_password),
-            yandex_token_set=bool(yandex_token),
-            yandex_oauth_token=yandex_token,
-            yandex_remote_base_path=yandex_remote_base,
-        )
+            expected_password = auth_values["admin_password"]
+            provided_password = payload.admin_password or ""
+            if not hmac.compare_digest(provided_password, expected_password):
+                LOGGER.warning(
+                    "Admin secret reveal denied username=%s client=%s",
+                    admin_user.username,
+                    request.client.host if request.client else "unknown",
+                )
+                raise HTTPException(status_code=403, detail="Admin password confirmation failed")
+            LOGGER.warning(
+                "Admin secret reveal granted username=%s client=%s",
+                admin_user.username,
+                request.client.host if request.client else "unknown",
+            )
+            # Avoid caching secret payload in proxies/browser intermediates.
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
+            return build_admin_reveal_response(session)
 
     @app.post("/api/admin/apply-ftp", response_model=AdminApplyFtpResponse)
     def apply_admin_ftp_settings(_: AuthUser = Depends(require_admin(config))) -> AdminApplyFtpResponse:
@@ -512,6 +559,7 @@ if __name__ == "__main__":
     def get_batches(
         limit: int = Query(default=50, ge=1, le=500),
         include_downloaded: bool = Query(default=False),
+        include_photos: bool = Query(default=False),
         _: str = Depends(require_auth(config)),
     ) -> list[BatchListItem]:
         with session_factory() as session:
@@ -539,6 +587,16 @@ if __name__ == "__main__":
                         archive_name=build_archive_name(photographer_name, batch.captured_at, daily_sequence),
                         captured_at=batch.captured_at,
                         created_at=batch.created_at,
+                        photos=[
+                            BatchListPhotoItem(
+                                id=photo.id,
+                                filename=photo.filename,
+                                size_bytes=photo.size_bytes,
+                                image_url=f"/api/photos/{photo.id}/content",
+                                thumbnail_url=f"/api/photos/{photo.id}/thumbnail",
+                            )
+                            for photo in active_photos
+                        ] if include_photos else None,
                     )
                 )
                 if len(response) >= limit:
@@ -891,7 +949,7 @@ if __name__ == "__main__":
     @app.get("/api/archive/usage", response_model=ArchiveUsageResponse)
     def get_archive_usage(_: str = Depends(require_auth(config))) -> ArchiveUsageResponse:
         with session_factory() as session:
-            cleaned_batches, deleted_files, deleted_bytes = cleanup_expired_archive(session)
+            cleaned_batches, deleted_files, deleted_bytes = maybe_cleanup_expired_archive(session)
             if cleaned_batches or deleted_files or deleted_bytes:
                 session.commit()
             used_bytes = calculate_archive_usage_bytes(session)
@@ -911,13 +969,16 @@ if __name__ == "__main__":
         _: str = Depends(require_auth(config)),
     ) -> list[ArchiveBatchListItem]:
         with session_factory() as session:
-            cleaned_batches, deleted_files, deleted_bytes = cleanup_expired_archive(session)
+            cleaned_batches, deleted_files, deleted_bytes = maybe_cleanup_expired_archive(session)
             if cleaned_batches or deleted_files or deleted_bytes:
                 session.commit()
             batches = list_archive_batches(session, limit=limit)
+            photos_by_batch: dict[str, list] = {}
+            for photo in list_photos_for_batch_ids(session, [batch.id for batch in batches]):
+                photos_by_batch.setdefault(photo.batch_id, []).append(photo)
             response: list[ArchiveBatchListItem] = []
             for batch in batches:
-                photos = get_batch_photos(session, batch.id)
+                photos = photos_by_batch.get(batch.id, [])
                 existing_photos = [photo for photo in photos if Path(photo.original_path).exists()]
                 if not existing_photos:
                     mark_batch_archived_deleted(session, batch_id=batch.id)
@@ -949,7 +1010,7 @@ if __name__ == "__main__":
         _: str = Depends(require_auth(config)),
     ) -> ArchiveBatchDetail:
         with session_factory() as session:
-            cleaned_batches, deleted_files, deleted_bytes = cleanup_expired_archive(session)
+            cleaned_batches, deleted_files, deleted_bytes = maybe_cleanup_expired_archive(session)
             if cleaned_batches or deleted_files or deleted_bytes:
                 session.commit()
             batch = get_batch_by_id(session, batch_id)
@@ -1211,7 +1272,7 @@ if __name__ == "__main__":
     @app.post("/api/dev/smoke-batch", response_model=SmokeBatchResponse)
     def create_smoke_batch(
         payload: SmokeBatchRequest,
-        _: str = Depends(require_auth(config)),
+        _: AuthUser = Depends(require_admin(config)),
     ) -> SmokeBatchResponse:
         target_dir = config.paths.incoming / payload.photographer
         target_dir.mkdir(parents=True, exist_ok=True)

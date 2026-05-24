@@ -31,50 +31,60 @@ class YandexDiskUploader:
         self.config = config
         self.token = token
 
+    @staticmethod
+    def _iter_file_chunks(file_handle, chunk_size: int = 1024 * 1024):
+        while True:
+            chunk = file_handle.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
     def upload_batch_files(
         self,
         *,
         local_files: list[tuple[Path, str]],
         remote_dir: str,
     ) -> YandexUploadResult:
-        self._ensure_remote_tree(remote_dir)
         uploaded = 0
-        for local_path, remote_name in local_files:
-            remote_path = f"{remote_dir.rstrip('/')}/{remote_name}"
-            upload_url = self._get_upload_url(remote_path)
-            with local_path.open("rb") as file_handle:
-                response = httpx.put(upload_url, content=file_handle.read(), timeout=120)
-                response.raise_for_status()
-            uploaded += 1
+        timeout = httpx.Timeout(connect=30, read=120, write=120, pool=30)
+        with httpx.Client(headers=self._headers(), timeout=timeout) as client:
+            self._ensure_remote_tree(client, remote_dir)
+            for local_path, remote_name in local_files:
+                remote_path = f"{remote_dir.rstrip('/')}/{remote_name}"
+                upload_url = self._get_upload_url(client, remote_path)
+                with local_path.open("rb") as file_handle:
+                    response = client.put(upload_url, content=self._iter_file_chunks(file_handle))
+                    response.raise_for_status()
+                uploaded += 1
         return YandexUploadResult(remote_path=remote_dir, uploaded_files=uploaded)
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"OAuth {self.token}"}
 
-    def _ensure_remote_tree(self, remote_dir: str) -> None:
+    def _ensure_remote_tree(self, client: httpx.Client, remote_dir: str) -> None:
         # Disk API does not create nested directories recursively.
         parts = [part for part in remote_dir.strip("/").split("/") if part]
         current = ""
         for part in parts:
             current = f"{current}/{part}" if current else f"/{part}"
-            self._ensure_remote_dir(current)
+            self._ensure_remote_dir(client, current)
 
-    def _ensure_remote_dir(self, remote_dir: str) -> None:
+    def _ensure_remote_dir(self, client: httpx.Client, remote_dir: str) -> None:
         encoded_path = quote(remote_dir, safe="/")
         url = f"{self.API_BASE}?path={encoded_path}"
-        response = httpx.put(url, headers=self._headers(), timeout=30)
+        response = client.put(url)
         if response.status_code == 201:
             return
         if response.status_code == 409:
-            verify = httpx.get(url, headers=self._headers(), timeout=30)
+            verify = client.get(url)
             if verify.status_code == 200:
                 return
         response.raise_for_status()
 
-    def _get_upload_url(self, remote_path: str) -> str:
+    def _get_upload_url(self, client: httpx.Client, remote_path: str) -> str:
         encoded_path = quote(remote_path, safe="/")
         url = f"{self.API_BASE}/upload?path={encoded_path}&overwrite=true"
-        response = httpx.get(url, headers=self._headers(), timeout=30)
+        response = client.get(url)
         response.raise_for_status()
         payload = response.json()
         href = str(payload.get("href", "")).strip()

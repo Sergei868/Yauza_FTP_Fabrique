@@ -606,7 +606,7 @@
       <div id="status" class="mono status"></div>
       <div id="adminPanel" class="admin-panel">
         <h3>Админ-настройки</h3>
-        <p class="admin-note">Поля ниже доступны только при входе под админ-логином. Пароли не отображаются после сохранения.</p>
+        <p class="admin-note">Поля ниже доступны только при входе под админ-логином. Секреты скрыты по умолчанию и могут быть показаны временно на 60 секунд.</p>
         <div class="admin-grid">
           <div class="admin-field">
             <label class="admin-field-label" for="adminBildUsername">Бильд: логин кабинета</label>
@@ -704,6 +704,8 @@
         </div>
         <div class="row">
           <button id="adminLoadSettingsBtn">Прочитать текущие настройки</button>
+          <input id="adminRevealConfirmPassword" type="password" placeholder="Подтвердите админ-пароль" />
+          <button id="adminRevealSecretsBtn">Показать секреты на 60 сек</button>
           <button id="adminSaveSettingsBtn">Сохранить админ-настройки</button>
           <button id="adminApplyFtpBtn">Применить FTP-настройки на сервере</button>
         </div>
@@ -761,6 +763,6 @@
       </div>
     </div>
   </div>
-  <script src="/bild-dashboard.js?v=20260524-1656"></script>
+  <script src="/bild-dashboard.js?v=20260524-1802"></script>
 </body>
 </html>

@@ -150,6 +150,17 @@ def get_batch_photos(session: Session, batch_id: str) -> list[Photo]:
     return list(session.execute(query).scalars())
 
 
+def list_photos_for_batch_ids(session: Session, batch_ids: list[str]) -> list[Photo]:
+    if not batch_ids:
+        return []
+    query = (
+        select(Photo)
+        .where(Photo.batch_id.in_(batch_ids))
+        .order_by(Photo.batch_id.asc(), Photo.created_at.asc())
+    )
+    return list(session.execute(query).scalars())
+
+
 def get_photo_by_id(session: Session, photo_id: str) -> Photo | None:
     query = select(Photo).where(Photo.id == photo_id)
     return session.execute(query).scalar_one_or_none()

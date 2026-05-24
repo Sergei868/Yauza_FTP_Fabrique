@@ -19,6 +19,15 @@ class BatchListItem(BaseModel):
     archive_name: str
     captured_at: datetime
     created_at: datetime
+    photos: list["BatchListPhotoItem"] | None = None
+
+
+class BatchListPhotoItem(BaseModel):
+    id: str
+    filename: str
+    size_bytes: int
+    image_url: str
+    thumbnail_url: str
 
 
 class BatchPhotoItem(BaseModel):
@@ -145,6 +154,19 @@ class AdminSettingsUpdateRequest(BaseModel):
     ftp_photographer_password: str | None = None
     yandex_oauth_token: str | None = None
     yandex_remote_base_path: str | None = None
+
+
+class AdminRevealSecretsRequest(BaseModel):
+    admin_password: str
+
+
+class AdminRevealSecretsResponse(BaseModel):
+    bild_password: str | None = None
+    admin_password: str | None = None
+    ftp_bild_password: str | None = None
+    ftp_photographer_password: str | None = None
+    yandex_oauth_token: str | None = None
+    expires_in_seconds: int
 
 
 class AdminApplyFtpResponse(BaseModel):

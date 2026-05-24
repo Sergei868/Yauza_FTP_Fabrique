@@ -13,6 +13,7 @@ const state = {
   userRole: "bild",
   archiveBatchCache: new Map(),
   archiveModal: null,
+  adminSecretsHideTimer: null,
 };
 
 const statusEl = document.getElementById("status");
@@ -40,6 +41,7 @@ const adminFtpPhotographerUsernameEl = document.getElementById("adminFtpPhotogra
 const adminFtpPhotographerPasswordEl = document.getElementById("adminFtpPhotographerPassword");
 const adminYandexTokenEl = document.getElementById("adminYandexToken");
 const adminYandexRemotePathEl = document.getElementById("adminYandexRemotePath");
+const adminRevealConfirmPasswordEl = document.getElementById("adminRevealConfirmPassword");
 const tabButtons = [...document.querySelectorAll("[data-tab-target]")];
 const tabPanels = [...document.querySelectorAll("[data-tab-panel]")];
 const lightboxEl = document.getElementById("lightbox");
@@ -306,6 +308,27 @@ function applyRoleUi() {
   adminPanelEl.classList.toggle("visible", isAdmin);
 }
 
+function clearAdminSecretFields() {
+  if (adminBildPasswordEl) adminBildPasswordEl.value = "";
+  if (adminAdminPasswordEl) adminAdminPasswordEl.value = "";
+  if (adminFtpBildPasswordEl) adminFtpBildPasswordEl.value = "";
+  if (adminFtpPhotographerPasswordEl) adminFtpPhotographerPasswordEl.value = "";
+  if (adminYandexTokenEl) adminYandexTokenEl.value = "";
+}
+
+function scheduleAdminSecretsAutoHide(seconds) {
+  if (state.adminSecretsHideTimer) {
+    clearTimeout(state.adminSecretsHideTimer);
+    state.adminSecretsHideTimer = null;
+  }
+  const ttlMs = Math.max(1, Number(seconds || 60)) * 1000;
+  state.adminSecretsHideTimer = setTimeout(() => {
+    clearAdminSecretFields();
+    state.adminSecretsHideTimer = null;
+    setStatus("Секреты снова скрыты");
+  }, ttlMs);
+}
+
 async function fetchAuthMe() {
   if (!state.token) return;
   const me = await apiJson("/api/auth/me");
@@ -328,8 +351,28 @@ async function loadAdminSettings() {
     adminFtpPhotographerPasswordEl.value = data.ftp_photographer_password || "";
   }
   if (adminYandexRemotePathEl) adminYandexRemotePathEl.value = data.yandex_remote_base_path || "";
-  if (adminYandexTokenEl) adminYandexTokenEl.value = data.yandex_oauth_token || "";
-  setStatus("Админ-настройки загружены");
+  clearAdminSecretFields();
+  setStatus("Админ-настройки загружены (секреты скрыты в API)");
+}
+
+async function revealAdminSecretsTemporarily() {
+  if (!state.token) throw new Error("Сначала выполните вход");
+  if (state.userRole !== "admin") throw new Error("Требуется вход под админом");
+  const confirmPassword = adminRevealConfirmPasswordEl?.value || "";
+  if (!confirmPassword.trim()) throw new Error("Введите пароль подтверждения рядом с кнопкой показа секретов");
+  const payload = await apiJson("/api/admin/settings/reveal-secrets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ admin_password: confirmPassword }),
+  });
+  if (adminBildPasswordEl) adminBildPasswordEl.value = payload.bild_password || "";
+  if (adminAdminPasswordEl) adminAdminPasswordEl.value = payload.admin_password || "";
+  if (adminFtpBildPasswordEl) adminFtpBildPasswordEl.value = payload.ftp_bild_password || "";
+  if (adminFtpPhotographerPasswordEl) adminFtpPhotographerPasswordEl.value = payload.ftp_photographer_password || "";
+  if (adminYandexTokenEl) adminYandexTokenEl.value = payload.yandex_oauth_token || "";
+  if (adminRevealConfirmPasswordEl) adminRevealConfirmPasswordEl.value = "";
+  scheduleAdminSecretsAutoHide(payload.expires_in_seconds || 60);
+  setStatus(`Секреты показаны на ${payload.expires_in_seconds || 60} сек`);
 }
 
 async function saveAdminSettings() {
@@ -529,8 +572,7 @@ async function fetchBatchDetail(batchId) {
 }
 
 async function fetchBatchesAndRender() {
-  const previousById = new Map(state.allBatches.map((batch) => [batch.id, batch]));
-  const batches = await apiJson("/api/batches?limit=50");
+  const batches = await apiJson("/api/batches?limit=50&include_photos=true");
   state.allBatches = batches;
   renderBatchStats(batches, batches);
   const renderSignature = JSON.stringify({
@@ -547,12 +589,15 @@ async function fetchBatchesAndRender() {
   if (renderSignature === state.lastRenderSignature) {
     return;
   }
+  const knownIds = new Set(batches.map((batch) => batch.id));
+  for (const cachedId of state.batchCache.keys()) {
+    if (!knownIds.has(cachedId)) state.batchCache.delete(cachedId);
+  }
   const rendered = [];
   for (const batch of batches) {
-    const prev = previousById.get(batch.id);
-    const changed = !prev || prev.file_count !== batch.file_count || prev.broken_files_count !== batch.broken_files_count;
-    if (changed) state.batchCache.delete(batch.id);
-    const detail = await fetchBatchDetail(batch.id);
+    const photos = Array.isArray(batch.photos) ? batch.photos : [];
+    const detail = { photos };
+    state.batchCache.set(batch.id, detail);
     rendered.push(renderBatchGallery(batch, detail));
   }
   batchesEl.innerHTML = rendered.join("");
@@ -729,6 +774,11 @@ async function login() {
 
 function logout() {
   clearSessionState();
+  if (state.adminSecretsHideTimer) {
+    clearTimeout(state.adminSecretsHideTimer);
+    state.adminSecretsHideTimer = null;
+  }
+  clearAdminSecretFields();
   for (const objectUrl of state.imageObjectUrls.values()) {
     URL.revokeObjectURL(objectUrl);
   }
@@ -1114,6 +1164,7 @@ bindIfExists(document.getElementById("clearNotificationsBtn"), "click", () => cl
 bindIfExists(document.getElementById("saveArchiveSettingsBtn"), "click", () => saveArchiveSettings().catch((e) => setStatus(String(e), true)));
 bindIfExists(document.getElementById("clearArchiveBtn"), "click", () => clearArchive().catch((e) => setStatus(String(e), true)));
 bindIfExists(document.getElementById("adminLoadSettingsBtn"), "click", () => loadAdminSettings().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("adminRevealSecretsBtn"), "click", () => revealAdminSecretsTemporarily().catch((e) => setStatus(String(e), true)));
 bindIfExists(document.getElementById("adminSaveSettingsBtn"), "click", () => saveAdminSettings().catch((e) => setStatus(String(e), true)));
 bindIfExists(document.getElementById("adminApplyFtpBtn"), "click", () => applyAdminFtpSettings().catch((e) => setStatus(String(e), true)));
 for (const toggleBtn of document.querySelectorAll("[data-toggle-password]")) {

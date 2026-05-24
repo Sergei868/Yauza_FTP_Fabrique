@@ -67,7 +67,11 @@ class BatchWatcher:
             self.config.batch.poll_seconds,
         )
         while True:
-            self.run_once()
+            try:
+                self.run_once()
+            except Exception:
+                # Keep watcher alive even if one scan iteration fails.
+                LOGGER.exception("Watcher iteration failed")
             time.sleep(self.config.batch.poll_seconds)
 
     def run_once(self) -> None:

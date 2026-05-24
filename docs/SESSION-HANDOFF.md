@@ -157,6 +157,26 @@ curl -sS -H "Authorization: Bearer ${TOKEN}" "http://127.0.0.1:8000/api/yandex/a
 - git checkpoint зафиксирован: commit `74a4c90`, tag `pre-audit-20260524-1630`, push выполнен;
 - локальный `git bundle` создан: `backups/checkpoints/20260524_162209/pre-audit.bundle`;
 - VPS backup завершён: `/var/backups/yauza/checkpoints/20260524_132959` (runtime + DB dump + checksums).
+- Audit v1 hardening выполнен:
+  - `/api/admin/settings` больше не возвращает секреты в явном виде,
+  - watcher защищён от падения всего сервиса при ошибке одного цикла.
+- Добавлен компромиссный безопасный режим показа секретов:
+  - отдельная кнопка в UI и endpoint `POST /api/admin/settings/reveal-secrets`,
+  - повторное подтверждение админ-паролем,
+  - автоскрытие значений через 60 секунд.
+- Security mini-audit hardening:
+  - `POST /api/dev/smoke-batch` ограничен только ролью `admin`,
+  - reveal-secrets пишет audit-лог (allowed/denied + client IP),
+  - backup-папки и дампы на VPS переведены на ограниченные права (`750`/`640`).
+- Performance hardening #1:
+  - `YandexDiskUploader` переведён на streaming upload и shared HTTP client на пакет,
+  - снижена пиковая нагрузка на RAM/соединения при массовых пакетах.
+- Performance hardening #2:
+  - archive cleanup в API теперь throttled (не чаще 1 раза в 15 секунд),
+  - в `archive/usage` и `archive/batches` убран N+1 по таблице `photos` через batched query.
+- Performance hardening #3:
+  - packages tab переведён на bulk API (`/api/batches?include_photos=true`),
+  - убран frontend waterfall запросов деталей на каждый пакет (N+1 cut).
 
 ## 10) Аварийный откат
 
