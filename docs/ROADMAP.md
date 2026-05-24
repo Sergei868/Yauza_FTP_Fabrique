@@ -9,7 +9,7 @@
 | 0.1 | `PROJECT.md`, `config.example.yaml`, структура `docs/` | done |
 | 0.2 | Согласовать путь на VPS (`/srv/yauza/`) | done |
 | 0.3 | Очистка VPS ([VPS-CLEANUP.md](VPS-CLEANUP.md)) | done |
-| 0.4 | Safety checkpoint перед аудитом/рефакторингом (git tag + DB/runtime backup + запись в docs) | in_progress |
+| 0.4 | Safety checkpoint перед аудитом/рефакторингом (git tag + DB/runtime backup + запись в docs) | done |
 
 ## Фаза 1 — FTP
 

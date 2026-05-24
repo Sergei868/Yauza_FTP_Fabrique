@@ -1037,6 +1037,7 @@ sudo sha256sum "$CHECKPOINT_DIR/config.yaml" "$CHECKPOINT_DIR/yauza-api.service"
   - pushed to `origin` (branch + tag).
 - Local offline restore artifact completed:
   - `backups/checkpoints/20260524_162209/pre-audit.bundle`
-- VPS backup run from IDE shell is pending:
-  - two attempts failed due SSH connectivity (`banner exchange timeout` / `connection closed`).
-  - next step: execute "Runtime backup command (VPS)" directly from local terminal when SSH to `138.16.224.55` is stable.
+- VPS backup completed:
+  - backup dir: `/var/backups/yauza/checkpoints/20260524_132959`
+  - includes: `config.yaml`, `yauza-api.service`, `yauza-watcher.service`, `db.dump`, `SHA256SUMS.txt`
+  - `db.dump` created via `sudo -u postgres pg_dump -Fc <db_name>`
