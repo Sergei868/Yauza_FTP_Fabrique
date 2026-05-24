@@ -718,3 +718,318 @@
   - `/api/batches/{id}/download-selected` returns ZIP;
   - selected file removed from `incoming`;
   - when package becomes empty in `incoming`, it disappears from `/api/batches`.
+
+## 2026-05-24 — Phase 8 archive+TTL backend/UI rollout
+
+### Code deployed to VPS
+
+- Synced to `/opt/yauza-photofactory`:
+  - `src/photofactory/api/app.py`
+  - `src/photofactory/api/schemas.py`
+  - `src/photofactory/api/static/bild-dashboard.html`
+  - `src/photofactory/api/static/bild-dashboard.js`
+  - `src/photofactory/db/models.py`
+  - `src/photofactory/db/repository.py`
+  - `src/photofactory/watcher/service.py`
+  - `alembic/versions/20260524_0005_add_archive_ttl_columns.py`
+
+### Migration and service restart
+
+- Alembic upgrade applied with runtime config:
+  - `PHOTOFACTORY_CONFIG=/etc/yauza/config.yaml alembic upgrade head`
+  - revision: `20260522_0004 -> 20260524_0005`
+- Restarted services:
+  - `yauza-api`
+  - `yauza-watcher`
+- Status check:
+  - both services are `active`
+
+### Smoke checks (VPS)
+
+- `GET /health` -> `{"status":"ok"}`
+- Auth token issued successfully via `/api/auth/token`.
+- New archive endpoints respond:
+  - `GET /api/archive/settings`
+  - `GET /api/archive/usage`
+  - `GET /api/archive/batches?limit=3`
+- Dashboard cache marker check:
+  - `https://work.yauzamedia.ru/bild` contains `bild-dashboard.js?v=20260524-1300`
+
+### Runtime observation
+
+- Archive tracker immediately marked older batches as removed from `incoming` and assigned TTL timestamps (expected behavior for existing historical data under new rules).
+
+## 2026-05-24 — UI polish: archive settings button + number spinner contrast
+
+### Changes deployed
+
+- Updated `/bild` static HTML:
+  - button label changed to `Сохранить настройки архива`;
+  - increased right spacing after this button for clearer separation from `Очистить архив`;
+  - improved visibility of number input step arrows in dark theme (`#archiveLimitInput` spinner contrast).
+- Updated cache marker:
+  - `bild-dashboard.js?v=20260524-1335`
+
+### Verification
+
+- Production page `https://work.yauzamedia.ru/bild` contains:
+  - new cache marker `v=20260524-1335`
+  - new button text `Сохранить настройки архива`.
+
+## 2026-05-24 — UI polish: visible archive limit steppers + default limit 10 GB
+
+### Changes deployed
+
+- Replaced native number spinner rendering for `Лимит архива (ГБ)` with explicit white step buttons (`▲/▼`) in UI markup/CSS.
+- Added JS handlers for step-up/step-down with min guard (`>=1`).
+- Updated archive limit default in backend settings fallback:
+  - `DEFAULT_ARCHIVE_LIMIT_GB = 10`
+- Updated cache marker:
+  - `bild-dashboard.js?v=20260524-1350`
+
+### Runtime actions
+
+- Synced:
+  - `src/photofactory/api/static/bild-dashboard.html`
+  - `src/photofactory/api/static/bild-dashboard.js`
+  - `src/photofactory/db/repository.py`
+- Restarted:
+  - `yauza-api`
+  - `yauza-watcher`
+
+### Verification
+
+- Services are `active`.
+- `GET /api/archive/settings` returns `limit_gb=10`.
+- `POST /api/archive/settings` with `{ttl_hours:3, limit_gb:10}` accepted and persisted.
+- Production `/bild` serves marker `v=20260524-1350`.
+
+## 2026-05-24 — UI tweak: archive row alignment and label rename
+
+### Changes deployed
+
+- Simplified archive limit control:
+  - removed custom `▲/▼` stepper buttons;
+  - returned to plain numeric input field for visual alignment with TTL select.
+- Renamed settings label:
+  - from `TTL архива`
+  - to `Время жизни локального архива`.
+- Updated cache marker:
+  - `bild-dashboard.js?v=20260524-1400`
+
+### Verification
+
+- Production `/bild` contains:
+  - marker `v=20260524-1400`;
+  - label `Время жизни локального архива`;
+  - no legacy custom stepper markup.
+
+## 2026-05-24 — UI tweak: dual white steppers for archive settings
+
+### Changes deployed
+
+- Renamed label:
+  - `Время жизни локального архива (часов):`
+- Replaced both controls with unified custom stepper UI (white arrows `▲/▼`):
+  - TTL hours control,
+  - archive limit (GB) control.
+- TTL stepper now walks through allowed values from backend options (`1,2,3,4,5,6,8,12,24,36`).
+- Updated cache marker:
+  - `bild-dashboard.js?v=20260524-1430`
+
+### Verification
+
+- Production `/bild` includes:
+  - marker `v=20260524-1430`,
+  - label with `(часов)`,
+  - both stepper controls (`archiveTtlUpBtn`, `archiveLimitUpBtn`).
+
+## 2026-05-24 — Admin mode and runtime settings management
+
+### Scope
+
+- Added role-aware auth:
+  - token now contains `role` (`bild` / `admin`);
+  - new endpoint `GET /api/auth/me`.
+- Added admin-only settings API:
+  - `GET /api/admin/settings`
+  - `POST /api/admin/settings`
+- Added admin section in `/bild` settings UI (visible only for admin login):
+  - edit bild/admin credentials,
+  - edit FTP credentials for bild/photographer,
+  - update Yandex OAuth token and remote path.
+
+### Runtime behavior updates
+
+- Yandex token/path can now be overridden at runtime from DB settings (`app_settings`) without editing server files.
+- Manual Yandex upload endpoint and watcher auto-upload now read runtime token/path overrides.
+
+### Deployment actions
+
+- Synced updated backend/frontend files to `/opt/yauza-photofactory`.
+- Restarted services:
+  - `yauza-api`
+  - `yauza-watcher`
+- Status check: both services `active`.
+
+### Smoke verification
+
+- `POST /api/auth/token` for bild returns role `bild`; `/api/auth/me` confirms.
+- `POST /api/auth/token` for admin returns role `admin`; `/api/auth/me` confirms.
+- `GET /api/admin/settings`:
+  - available for admin token,
+  - returns `403` for bild token (expected).
+- `POST /api/admin/settings` write-smoke succeeded.
+- `/bild` serves updated UI marker:
+  - `bild-dashboard.js?v=20260524-1605`.
+
+### Important limitation
+
+- FTP credentials edited in admin UI are currently stored as runtime app settings only.
+- Applying these credentials to system `vsftpd` users/permissions is a separate hardening step.
+
+## 2026-05-24 — Admin FTP apply action (server-side)
+
+### Changes deployed
+
+- Added admin-only endpoint:
+  - `POST /api/admin/apply-ftp`
+- Added admin UI button:
+  - `Применить FTP-настройки на сервере`
+- Server-side apply does:
+  - validates FTP usernames/passwords,
+  - creates/updates Linux users for photographer and bild FTP profiles,
+  - sets passwords via `chpasswd`,
+  - updates `/etc/vsftpd.userlist`,
+  - writes per-user config files in `/etc/vsftpd_user_conf`,
+  - enforces photographer profile as upload-only (`download_enable=NO`, delete/rename denied),
+  - keeps bild profile read/write/delete in `incoming`,
+  - restarts `vsftpd`.
+
+### Deployment actions
+
+- Synced backend/frontend updates to `/opt/yauza-photofactory`.
+- Restarted:
+  - `yauza-api`
+  - `yauza-watcher`
+- Status check: both services `active`.
+
+### Smoke verification
+
+- Admin auth and settings endpoints are healthy.
+- `POST /api/admin/apply-ftp` currently returns controlled validation error until passwords are set:
+  - `400 {"detail":"FTP password for bild is empty"}`
+- `/bild` serves new marker:
+  - `bild-dashboard.js?v=20260524-1620`
+  - admin apply button is present.
+
+## 2026-05-24 — UI copy update and password reveal in admin form
+
+### Changes deployed
+
+- Renamed button text:
+  - `Загрузить админ-настройки` -> `Прочитать текущие настройки`.
+- Admin settings API now returns current secret values for admin-only session:
+  - bild/admin passwords,
+  - FTP passwords,
+  - Yandex OAuth token.
+- `Прочитать текущие настройки` now fills password/token fields with current values.
+- Password visibility toggle remains available via `◉` button next to each password field.
+- Updated cache marker:
+  - `bild-dashboard.js?v=20260524-1655`
+
+### Verification
+
+- Production `/bild` contains marker `v=20260524-1655`.
+- Production `/bild` contains button text `Прочитать текущие настройки`.
+
+## 2026-05-24 — Admin-only Yandex auto-upload toggle
+
+### Changes deployed
+
+- Moved checkbox `Авто-загрузка всех входящих на Я.Диск` from common settings area into admin panel block.
+- Restricted Yandex auto-upload API to admin role only:
+  - `GET /api/yandex/auto-upload` -> admin-only
+  - `POST /api/yandex/auto-upload` -> admin-only
+- Updated cache marker:
+  - `bild-dashboard.js?v=20260524-1720`
+
+### Verification
+
+- Production `/bild` serves marker `v=20260524-1720`.
+- `autoYandexToggle` is rendered in admin section (not in common section).
+- API role check:
+  - bild token -> `403 Admin access required`
+  - admin token -> `200` with current mode payload.
+
+## 2026-05-24 — Archive previews before download
+
+### Changes deployed
+
+- Added archive detail endpoint:
+  - `GET /api/archive/batches/{batch_id}`
+  - returns archive photo list with preview/original URLs.
+- Updated Archive tab UI:
+  - shows preview strip of first photos in each archive card,
+  - added `Просмотреть все` button,
+  - added archive modal with full preview gallery and `Скачать пакет` button.
+- Updated cache marker:
+  - `bild-dashboard.js?v=20260524-2100`
+
+### Verification
+
+- API smoke: archive detail endpoint returns photos for existing archive batch.
+- Frontend JS contains archive preview actions and modal wiring.
+
+## 2026-05-24 — Lightbox layering + archive card button rename
+
+### Changes deployed
+
+- Fixed layering bug in `/bild`:
+  - lightbox now renders above archive modal (`z-index` increased from `1000` to `1100`).
+- Updated archive card action row:
+  - swapped button order to `Просмотреть все` first,
+  - renamed `Скачать из архива` -> `Скачать весь пакет`.
+- Updated cache marker:
+  - `bild-dashboard.js?v=20260524-2155`
+
+### Verification
+
+- Visual check in browser:
+  - click archive preview -> lightbox opens above modal and is visible.
+- Archive cards show expected button order and new text.
+
+## 2026-05-24 — Safety checkpoint before audit/refactor
+
+### Goal
+
+- Freeze safe restore point before deep audit/refactor and VPS migration work.
+
+### Mandatory checkpoint policy (accepted)
+
+1. `git` restore point (commit + tag + push).
+2. VPS backup of runtime + DB dump.
+3. Update `docs/` with exact checkpoint metadata.
+
+### Runtime backup command (VPS)
+
+```bash
+TS=$(date +%Y%m%d_%H%M%S)
+CHECKPOINT_DIR="/var/backups/yauza/checkpoints/$TS"
+sudo mkdir -p "$CHECKPOINT_DIR"
+sudo cp /etc/yauza/config.yaml "$CHECKPOINT_DIR/config.yaml"
+sudo cp /etc/systemd/system/yauza-api.service "$CHECKPOINT_DIR/yauza-api.service"
+sudo cp /etc/systemd/system/yauza-watcher.service "$CHECKPOINT_DIR/yauza-watcher.service"
+DB_NAME=$(sudo awk -F": " '/^  name:/{print $2; exit}' /etc/yauza/config.yaml)
+DB_USER=$(sudo awk -F": " '/^  user:/{print $2; exit}' /etc/yauza/config.yaml)
+DB_PASS=$(sudo cat /etc/yauza/.db-password)
+sudo -E env PGPASSWORD="$DB_PASS" pg_dump -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" -Fc > /tmp/photofactory_"$TS".dump
+sudo mv /tmp/photofactory_"$TS".dump "$CHECKPOINT_DIR/db.dump"
+sudo sha256sum "$CHECKPOINT_DIR/config.yaml" "$CHECKPOINT_DIR/yauza-api.service" "$CHECKPOINT_DIR/yauza-watcher.service" "$CHECKPOINT_DIR/db.dump" | sudo tee "$CHECKPOINT_DIR/SHA256SUMS.txt"
+```
+
+### Current status
+
+- Checkpoint flow prepared and documented.
+- Remote execution from IDE shell is currently blocked by intermittent SSH timeout (`138.16.224.55:22`).
+- Next action when SSH is stable: run the command above and record resulting `CHECKPOINT_DIR` path here.

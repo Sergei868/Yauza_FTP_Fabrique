@@ -9,6 +9,10 @@ const state = {
   activeTab: "packages",
   lastRenderSignature: "",
   lightbox: null,
+  archiveTtlOptions: [],
+  userRole: "bild",
+  archiveBatchCache: new Map(),
+  archiveModal: null,
 };
 
 const statusEl = document.getElementById("status");
@@ -16,7 +20,26 @@ const metaEl = document.getElementById("meta");
 const notificationsEl = document.getElementById("notifications");
 const batchesEl = document.getElementById("batches");
 const batchStatsEl = document.getElementById("batchStats");
+const archiveUsageEl = document.getElementById("archiveUsage");
+const archiveBatchesEl = document.getElementById("archiveBatches");
 const autoYandexToggleEl = document.getElementById("autoYandexToggle");
+const archiveTtlInputEl = document.getElementById("archiveTtlInput");
+const archiveLimitInputEl = document.getElementById("archiveLimitInput");
+const archiveTtlUpBtnEl = document.getElementById("archiveTtlUpBtn");
+const archiveTtlDownBtnEl = document.getElementById("archiveTtlDownBtn");
+const archiveLimitUpBtnEl = document.getElementById("archiveLimitUpBtn");
+const archiveLimitDownBtnEl = document.getElementById("archiveLimitDownBtn");
+const adminPanelEl = document.getElementById("adminPanel");
+const adminBildUsernameEl = document.getElementById("adminBildUsername");
+const adminBildPasswordEl = document.getElementById("adminBildPassword");
+const adminAdminUsernameEl = document.getElementById("adminAdminUsername");
+const adminAdminPasswordEl = document.getElementById("adminAdminPassword");
+const adminFtpBildUsernameEl = document.getElementById("adminFtpBildUsername");
+const adminFtpBildPasswordEl = document.getElementById("adminFtpBildPassword");
+const adminFtpPhotographerUsernameEl = document.getElementById("adminFtpPhotographerUsername");
+const adminFtpPhotographerPasswordEl = document.getElementById("adminFtpPhotographerPassword");
+const adminYandexTokenEl = document.getElementById("adminYandexToken");
+const adminYandexRemotePathEl = document.getElementById("adminYandexRemotePath");
 const tabButtons = [...document.querySelectorAll("[data-tab-target]")];
 const tabPanels = [...document.querySelectorAll("[data-tab-panel]")];
 const lightboxEl = document.getElementById("lightbox");
@@ -27,6 +50,12 @@ const lightboxDownloadBtnEl = document.getElementById("lightboxDownloadBtn");
 const lightboxPrevBtnEl = document.getElementById("lightboxPrevBtn");
 const lightboxNextBtnEl = document.getElementById("lightboxNextBtn");
 const lightboxCounterEl = document.getElementById("lightboxCounter");
+const archiveModalEl = document.getElementById("archiveModal");
+const archiveModalTitleEl = document.getElementById("archiveModalTitle");
+const archiveModalGridEl = document.getElementById("archiveModalGrid");
+const archiveModalDownloadBtnEl = document.getElementById("archiveModalDownloadBtn");
+const archiveModalDownloadSelectedBtnEl = document.getElementById("archiveModalDownloadSelectedBtn");
+const archiveModalCloseBtnEl = document.getElementById("archiveModalCloseBtn");
 
 function setStatus(text, isError = false) {
   if (!statusEl) return;
@@ -56,6 +85,14 @@ function setActiveTab(tabId) {
   for (const panel of tabPanels) {
     const active = panel.getAttribute("data-tab-panel") === tabId;
     panel.classList.toggle("active", active);
+  }
+  if (!state.token) return;
+  if (tabId === "archive") {
+    fetchArchiveData().catch((e) => setStatus(String(e), true));
+    return;
+  }
+  if (tabId === "packages") {
+    fetchBatchesAndRender().catch((e) => setStatus(String(e), true));
   }
 }
 
@@ -94,16 +131,33 @@ async function apiJson(url, options = {}) {
 }
 
 function renderNotifications(items) {
-  const unread = items.filter((item) => item.status !== "read").length;
-  metaEl.textContent = `Уведомлений: ${items.length} | Непрочитанных: ${unread}`;
+  metaEl.textContent = "";
   notificationsEl.innerHTML = "";
   for (const item of items) {
+    const dateSource = item.captured_at || item.created_at;
+    const dt = new Date(dateSource);
+    const parts = new Intl.DateTimeFormat("ru-RU", {
+      day: "numeric",
+      month: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).formatToParts(dt);
+    const day = parts.find((part) => part.type === "day")?.value || "";
+    const month = parts.find((part) => part.type === "month")?.value || "";
+    const hour = parts.find((part) => part.type === "hour")?.value || "";
+    const minute = parts.find((part) => part.type === "minute")?.value || "";
+    const dateLabel = `${day} ${month} ${hour}:${minute}`.trim();
+    const photographer = item.photographer || "unknown";
+    const fileCount = Number(item.file_count || 0);
+    const dailySequence = Number(item.daily_sequence || 0);
+    const totalBytes = Number(item.total_size_bytes || 0);
+    const totalMbRounded = Math.round(totalBytes / (1024 * 1024));
+    const mbLabel = `${new Intl.NumberFormat("ru-RU").format(totalMbRounded)} МБ`;
     const div = document.createElement("div");
     div.className = "notif";
     div.innerHTML = `
-      <div><b>${item.title}</b> <span class="mono">(${item.channel})</span></div>
-      <div>${item.message}</div>
-      <div class="mono">${item.created_at}</div>
+      <div>${esc(`${photographer}: ${dateLabel} #${dailySequence || "-"}`)}</div>
+      <div class="mono">${esc(`${fileCount} фото, ${mbLabel}`)}</div>
     `;
     notificationsEl.appendChild(div);
   }
@@ -114,6 +168,269 @@ async function fetchNotifications() {
   renderNotifications(items);
 }
 
+async function clearNotifications() {
+  if (!state.token) throw new Error("Сначала выполните вход");
+  const result = await apiJson("/api/notifications/clear", {
+    method: "POST",
+  });
+  setStatus(`Очищено уведомлений: ${result.deleted}`);
+  await fetchNotifications();
+}
+
+function formatRuDateTime(isoString) {
+  const dt = new Date(isoString);
+  const parts = new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(dt);
+  const day = parts.find((part) => part.type === "day")?.value || "";
+  const month = parts.find((part) => part.type === "month")?.value || "";
+  const hour = parts.find((part) => part.type === "hour")?.value || "";
+  const minute = parts.find((part) => part.type === "minute")?.value || "";
+  return `${day} ${month} ${hour}:${minute}`.trim();
+}
+
+function renderArchiveUsage(usage) {
+  if (!archiveUsageEl) return;
+  const used = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(usage.used_gb || 0));
+  const limit = new Intl.NumberFormat("ru-RU").format(Number(usage.limit_gb || 0));
+  const percent = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Number(usage.usage_percent || 0));
+  archiveUsageEl.textContent = `Архив: ${used} / ${limit} ГБ (${percent}%)`;
+}
+
+function renderArchiveBatches(batches) {
+  if (!archiveBatchesEl) return;
+  if (!batches.length) {
+    archiveBatchesEl.innerHTML = '<div class="muted">Архив пока пуст.</div>';
+    return;
+  }
+  archiveBatchesEl.innerHTML = batches.map((batch) => {
+    const removedLabel = formatRuDateTime(batch.removed_from_incoming_at);
+    const expiresLabel = formatRuDateTime(batch.archive_expires_at);
+    const meta = formatBatchMeta(batch);
+    return `
+      <div class="batch-card">
+        <div class="batch-top">
+          <div>
+            <div class="batch-title">${esc(batch.photographer)}</div>
+            <div class="batch-sub">${esc(meta.line1)}<br>${esc(`${meta.line2} | Удален из incoming: ${removedLabel} | лежит до ${expiresLabel}`)}</div>
+          </div>
+        </div>
+        <div class="archive-preview-row" data-archive-preview-row="${esc(batch.id)}">
+          <span class="muted">Загрузка превью...</span>
+        </div>
+        <div class="row">
+          <button data-action="view-archive-all" data-batch-id="${esc(batch.id)}">Просмотреть все</button>
+          <button data-action="download-archive" data-batch-id="${esc(batch.id)}">Скачать весь пакет</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+async function fetchArchiveBatchDetail(batchId) {
+  if (state.archiveBatchCache.has(batchId)) return state.archiveBatchCache.get(batchId);
+  const detail = await apiJson(`/api/archive/batches/${batchId}`);
+  state.archiveBatchCache.set(batchId, detail);
+  return detail;
+}
+
+async function hydrateArchivePreviews(batches) {
+  if (!archiveBatchesEl) return;
+  for (const batch of batches) {
+    const row = archiveBatchesEl.querySelector(`[data-archive-preview-row="${batch.id}"]`);
+    if (!(row instanceof HTMLElement)) continue;
+    try {
+      const detail = await fetchArchiveBatchDetail(batch.id);
+      const firstPhotos = (detail.photos || []).slice(0, 8);
+      if (!firstPhotos.length) {
+        row.innerHTML = '<span class="muted">Нет файлов для превью.</span>';
+        continue;
+      }
+      row.innerHTML = firstPhotos.map((photo) => (
+        `<img class="archive-preview-item" data-archive-preview-photo="${esc(photo.id)}" alt="${esc(photo.filename)}" title="${esc(photo.filename)}" />`
+      )).join("");
+      const imgTargets = [...row.querySelectorAll("img[data-archive-preview-photo]")];
+      for (const imgEl of imgTargets) {
+        const photoId = imgEl.getAttribute("data-archive-preview-photo") || "";
+        const photo = firstPhotos.find((item) => item.id === photoId);
+        if (!photo) continue;
+        try {
+          const objectUrl = await fetchBlobObjectUrl(photo.thumbnail_url || photo.image_url, state.imageObjectUrls, photo.id);
+          imgEl.src = objectUrl;
+        } catch (_err) {
+          imgEl.alt = `${imgEl.alt || "preview"} (ошибка)`;
+        }
+      }
+    } catch (_err) {
+      row.innerHTML = '<span class="muted">Не удалось загрузить превью.</span>';
+    }
+  }
+}
+
+async function fetchArchiveData() {
+  if (!state.token) return;
+  const [usage, batches] = await Promise.all([
+    apiJson("/api/archive/usage"),
+    apiJson("/api/archive/batches?limit=50"),
+  ]);
+  const knownIds = new Set(batches.map((item) => item.id));
+  for (const cachedId of state.archiveBatchCache.keys()) {
+    if (!knownIds.has(cachedId)) state.archiveBatchCache.delete(cachedId);
+  }
+  renderArchiveUsage(usage);
+  renderArchiveBatches(batches);
+  await hydrateArchivePreviews(batches);
+}
+
+async function loadArchiveSettings() {
+  if (!state.token) return;
+  const settings = await apiJson("/api/archive/settings");
+  state.archiveTtlOptions = (settings.ttl_options_hours || [])
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item) && item > 0)
+    .sort((a, b) => a - b);
+  if (archiveTtlInputEl) {
+    archiveTtlInputEl.value = String(settings.ttl_hours);
+  }
+  if (archiveLimitInputEl) {
+    archiveLimitInputEl.value = String(settings.limit_gb);
+  }
+}
+
+function applyRoleUi() {
+  if (!adminPanelEl) return;
+  const isAdmin = state.userRole === "admin";
+  adminPanelEl.classList.toggle("visible", isAdmin);
+}
+
+async function fetchAuthMe() {
+  if (!state.token) return;
+  const me = await apiJson("/api/auth/me");
+  state.userRole = me.role || "bild";
+  applyRoleUi();
+}
+
+async function loadAdminSettings() {
+  if (!state.token) throw new Error("Сначала выполните вход");
+  if (state.userRole !== "admin") throw new Error("Требуется вход под админом");
+  const data = await apiJson("/api/admin/settings");
+  if (adminBildUsernameEl) adminBildUsernameEl.value = data.bild_username || "";
+  if (adminBildPasswordEl) adminBildPasswordEl.value = data.bild_password || "";
+  if (adminAdminUsernameEl) adminAdminUsernameEl.value = data.admin_username || "";
+  if (adminAdminPasswordEl) adminAdminPasswordEl.value = data.admin_password || "";
+  if (adminFtpBildUsernameEl) adminFtpBildUsernameEl.value = data.ftp_bild_username || "";
+  if (adminFtpBildPasswordEl) adminFtpBildPasswordEl.value = data.ftp_bild_password || "";
+  if (adminFtpPhotographerUsernameEl) adminFtpPhotographerUsernameEl.value = data.ftp_photographer_username || "";
+  if (adminFtpPhotographerPasswordEl) {
+    adminFtpPhotographerPasswordEl.value = data.ftp_photographer_password || "";
+  }
+  if (adminYandexRemotePathEl) adminYandexRemotePathEl.value = data.yandex_remote_base_path || "";
+  if (adminYandexTokenEl) adminYandexTokenEl.value = data.yandex_oauth_token || "";
+  setStatus("Админ-настройки загружены");
+}
+
+async function saveAdminSettings() {
+  if (!state.token) throw new Error("Сначала выполните вход");
+  if (state.userRole !== "admin") throw new Error("Требуется вход под админом");
+  const payload = {
+    bild_username: adminBildUsernameEl?.value?.trim() || undefined,
+    bild_password: adminBildPasswordEl?.value || undefined,
+    admin_username: adminAdminUsernameEl?.value?.trim() || undefined,
+    admin_password: adminAdminPasswordEl?.value || undefined,
+    ftp_bild_username: adminFtpBildUsernameEl?.value?.trim() || undefined,
+    ftp_bild_password: adminFtpBildPasswordEl?.value || undefined,
+    ftp_photographer_username: adminFtpPhotographerUsernameEl?.value?.trim() || undefined,
+    ftp_photographer_password: adminFtpPhotographerPasswordEl?.value || undefined,
+    yandex_oauth_token: adminYandexTokenEl?.value?.trim() || undefined,
+    yandex_remote_base_path: adminYandexRemotePathEl?.value?.trim() || undefined,
+  };
+  const sanitizedPayload = Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== undefined && value !== ""),
+  );
+  if (!Object.keys(sanitizedPayload).length) {
+    setStatus("Нет изменений для сохранения", true);
+    return;
+  }
+  await apiJson("/api/admin/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(sanitizedPayload),
+  });
+  setStatus("Админ-настройки сохранены");
+  await Promise.all([fetchAuthMe(), loadAdminSettings()]);
+}
+
+async function applyAdminFtpSettings() {
+  if (!state.token) throw new Error("Сначала выполните вход");
+  if (state.userRole !== "admin") throw new Error("Требуется вход под админом");
+  const ok = window.confirm(
+    "Применить FTP-настройки на сервере сейчас? Будут обновлены пользователи и перезапущен vsftpd.",
+  );
+  if (!ok) return;
+  const result = await apiJson("/api/admin/apply-ftp", {
+    method: "POST",
+  });
+  setStatus(`FTP применен: фотограф=${result.ftp_photographer_username}, бильд=${result.ftp_bild_username}`);
+}
+
+function getNearestTtlOption(value) {
+  const options = state.archiveTtlOptions || [];
+  if (!options.length) return value;
+  let nearest = options[0];
+  let minDistance = Math.abs(options[0] - value);
+  for (const option of options) {
+    const distance = Math.abs(option - value);
+    if (distance < minDistance) {
+      nearest = option;
+      minDistance = distance;
+    }
+  }
+  return nearest;
+}
+
+function stepTtlValue(direction) {
+  if (!archiveTtlInputEl) return;
+  const options = state.archiveTtlOptions || [];
+  if (!options.length) {
+    const raw = Number(archiveTtlInputEl.value || "1");
+    const next = Math.max(1, raw + direction);
+    archiveTtlInputEl.value = String(next);
+    return;
+  }
+  const current = Number(archiveTtlInputEl.value || options[0]);
+  const normalized = getNearestTtlOption(current);
+  const currentIndex = options.findIndex((item) => item === normalized);
+  const nextIndex = Math.max(0, Math.min(options.length - 1, currentIndex + direction));
+  archiveTtlInputEl.value = String(options[nextIndex]);
+}
+
+async function saveArchiveSettings() {
+  if (!state.token) throw new Error("Сначала выполните вход");
+  const ttlHours = getNearestTtlOption(Number(archiveTtlInputEl?.value || "0"));
+  const limitGb = Number(archiveLimitInputEl?.value || "0");
+  const settings = await apiJson("/api/archive/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ttl_hours: ttlHours, limit_gb: limitGb }),
+  });
+  if (archiveTtlInputEl) archiveTtlInputEl.value = String(settings.ttl_hours);
+  if (archiveLimitInputEl) archiveLimitInputEl.value = String(settings.limit_gb);
+  setStatus("Настройки архива сохранены");
+  await fetchArchiveData();
+}
+
+async function clearArchive() {
+  if (!state.token) throw new Error("Сначала выполните вход");
+  const ok = window.confirm("Очистить архив originals полностью?");
+  if (!ok) return;
+  const result = await apiJson("/api/archive/clear", { method: "POST" });
+  setStatus(`Архив очищен: пакетов ${result.cleared_batches}, файлов ${result.deleted_files}`);
+  await fetchArchiveData();
+}
+
 function esc(text) {
   return String(text)
     .replaceAll("&", "&amp;")
@@ -122,7 +439,25 @@ function esc(text) {
 }
 
 function formatBatchMeta(batch) {
-  return `${new Date(batch.captured_at).toLocaleString()} | ${batch.file_count} снимков | ${batch.broken_files_count} битых | #${batch.daily_sequence} за сутки`;
+  const captured = new Date(batch.captured_at);
+  const dateParts = new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(captured);
+  const day = dateParts.find((part) => part.type === "day")?.value || "";
+  const month = dateParts.find((part) => part.type === "month")?.value || "";
+  const hour = dateParts.find((part) => part.type === "hour")?.value || "";
+  const minute = dateParts.find((part) => part.type === "minute")?.value || "";
+  const dateLabel = `${day} ${month} ${hour}:${minute}`.trim();
+  const totalBytes = Number(batch.total_size_bytes || 0);
+  const totalMbRounded = Math.round(totalBytes / (1024 * 1024));
+  const mbLabel = `${new Intl.NumberFormat("ru-RU").format(totalMbRounded)} МБ`;
+  return {
+    line1: `${dateLabel} | ${batch.file_count} фото`,
+    line2: `${batch.broken_files_count} битых | ${mbLabel} | #${batch.daily_sequence}`,
+  };
 }
 
 function actionKey(action, batchId) {
@@ -168,23 +503,18 @@ function renderBatchGallery(batch, detail) {
     .join("");
   const downloadAllBusy = isActionRunning("download-all", batch.id);
   const downloadSelectedBusy = isActionRunning("download-selected", batch.id);
-  const yandexBusy = isActionRunning("yadisk", batch.id);
+  const meta = formatBatchMeta(batch);
   return `
     <div class="batch-card" id="batch-${batch.id}">
       <div class="batch-top">
         <div>
           <div class="batch-title">${esc(batch.photographer)}</div>
-          <div class="batch-sub">${esc(formatBatchMeta(batch))}</div>
-        </div>
-        <div class="batch-badges">
-          <span class="badge">Пачка: ${esc(batch.batch_key)}</span>
-          <span class="badge">ZIP: ${esc(batch.archive_name)}</span>
+          <div class="batch-sub">${esc(meta.line1)}<br>${esc(meta.line2)}</div>
         </div>
       </div>
       <div class="row">
         <button data-action="download-all" data-batch-id="${batch.id}" ${downloadAllBusy ? "disabled" : ""}>${downloadAllBusy ? "Скачивание..." : "Скачать все"}</button>
         <button data-action="download-selected" data-batch-id="${batch.id}" ${downloadSelectedBusy ? "disabled" : ""}>${downloadSelectedBusy ? "Скачивание..." : "Скачать выбранное"}</button>
-        <button data-action="yadisk" data-batch-id="${batch.id}" ${yandexBusy ? "disabled" : ""}>${yandexBusy ? "Загрузка..." : "Загрузить на Я.Диск"}</button>
       </div>
       <div class="gallery">${images || '<span class="muted">В пачке нет валидных JPEG</span>'}</div>
     </div>
@@ -210,7 +540,7 @@ async function fetchBatchesAndRender() {
     broken: batches.map((item) => item.broken_files_count),
   });
   if (!batches.length) {
-    batchesEl.innerHTML = '<div class="muted">Пока нет пачек.</div>';
+    batchesEl.innerHTML = '<div class="muted">Пока нет пакетов.</div>';
     state.lastRenderSignature = renderSignature;
     return;
   }
@@ -270,9 +600,9 @@ async function hydrateBatchImages() {
 function renderBatchStats(allBatches, filteredBatches) {
   const totalBroken = filteredBatches.reduce((acc, item) => acc + item.broken_files_count, 0);
   const chips = [
-    `Всего пачек: ${allBatches.length}`,
+    `Пакеты: ${allBatches.length}`,
     `Показано: ${filteredBatches.length}`,
-    `Битых в фильтре: ${totalBroken}`,
+    `Битых: ${totalBroken}`,
   ];
   batchStatsEl.innerHTML = chips.map((item) => `<span class="chip">${esc(item)}</span>`).join("");
 }
@@ -377,11 +707,23 @@ async function login() {
     body: form,
   });
   state.token = tokenBody.access_token;
+  state.userRole = tokenBody.role || "bild";
   localStorage.setItem("pf_token", state.token);
+  applyRoleUi();
   setStatus(`JWT получен, TTL ${tokenBody.expires_in_seconds}s`);
+  await fetchAuthMe();
   await fetchNotifications();
-  await loadAutoYandexMode();
+  if (state.userRole === "admin") {
+    await loadAutoYandexMode();
+  } else if (autoYandexToggleEl) {
+    autoYandexToggleEl.checked = false;
+  }
+  await loadArchiveSettings();
   await fetchBatchesAndRender();
+  await fetchArchiveData();
+  if (state.userRole === "admin") {
+    await loadAdminSettings();
+  }
   startPolling();
 }
 
@@ -396,12 +738,16 @@ function logout() {
   state.imageObjectUrls.clear();
   state.originalObjectUrls.clear();
   state.lastRenderSignature = "";
+  state.userRole = "bild";
+  applyRoleUi();
   closeLightbox();
   stopPolling();
   notificationsEl.innerHTML = "";
   batchesEl.innerHTML = "";
   autoYandexToggleEl.checked = false;
   batchStatsEl.innerHTML = "";
+  if (archiveUsageEl) archiveUsageEl.textContent = "Архив: -";
+  if (archiveBatchesEl) archiveBatchesEl.innerHTML = "";
   metaEl.textContent = "";
   setStatus("Выход выполнен");
 }
@@ -413,6 +759,8 @@ function startPolling() {
       await fetchNotifications();
       if (state.activeTab === "packages" && !document.hidden) {
         await fetchBatchesAndRender();
+      } else if (state.activeTab === "archive" && !document.hidden) {
+        await fetchArchiveData();
       }
     } catch (err) {
       setStatus(`Ошибка polling: ${String(err)}`, true);
@@ -495,17 +843,6 @@ async function sendTestPush() {
   setStatus(`Test push: sent=${result.sent}, failed=${result.failed}`);
 }
 
-async function markRead() {
-  if (!state.token) throw new Error("Сначала выполните вход");
-  const result = await apiJson("/api/notifications/mark-read", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode: "all" }),
-  });
-  setStatus(`Помечено как прочитано: ${result.updated}`);
-  await fetchNotifications();
-}
-
 async function triggerRealBatch() {
   if (!state.token) throw new Error("Сначала выполните вход");
   const suffix = Date.now().toString().slice(-6);
@@ -523,13 +860,14 @@ async function triggerRealBatch() {
 }
 
 async function loadAutoYandexMode() {
-  if (!state.token) return;
+  if (!state.token || state.userRole !== "admin") return;
   const mode = await apiJson("/api/yandex/auto-upload");
   autoYandexToggleEl.checked = !!mode.enabled;
 }
 
 async function updateAutoYandexMode(enabled) {
   if (!state.token) throw new Error("Сначала выполните вход");
+  if (state.userRole !== "admin") throw new Error("Только админ может менять авто-загрузку Я.Диска");
   const result = await apiJson("/api/yandex/auto-upload", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -580,6 +918,7 @@ function downloadBatch(batchId) {
     .finally(() => {
       withActionState("download-all", batchId, false);
       fetchBatchesAndRender().catch(() => {});
+      fetchArchiveData().catch(() => {});
     });
 }
 
@@ -619,7 +958,118 @@ function downloadSelectedBatch(batchId) {
     .finally(() => {
       withActionState("download-selected", batchId, false);
       fetchBatchesAndRender().catch(() => {});
+      fetchArchiveData().catch(() => {});
     });
+}
+
+function downloadArchiveBatch(batchId) {
+  if (!state.token) throw new Error("Сначала выполните вход");
+  fetch(`/api/archive/batches/${batchId}/download`, { headers: getHeaders() })
+    .then(async (response) => {
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `archive download failed ${response.status}`);
+      }
+      const blob = await response.blob();
+      const contentDisposition = response.headers.get("Content-Disposition") || "";
+      const match = /filename="([^"]+)"/.exec(contentDisposition);
+      const filename = match ? match[1] : `archive-${batchId}.zip`;
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+      setStatus(`Скачан архивный пакет: ${filename}`);
+    })
+    .catch((err) => setStatus(`Ошибка скачивания архива: ${String(err)}`, true));
+}
+
+function downloadSelectedArchiveBatch(batchId, selectedPhotoIds) {
+  if (!state.token) throw new Error("Сначала выполните вход");
+  if (!selectedPhotoIds.length) {
+    setStatus("Выберите хотя бы одно фото в архиве", true);
+    return;
+  }
+  fetch(`/api/archive/batches/${batchId}/download-selected`, {
+    method: "POST",
+    headers: getHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ photo_ids: selectedPhotoIds }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `archive selected download failed ${response.status}`);
+      }
+      const blob = await response.blob();
+      const contentDisposition = response.headers.get("Content-Disposition") || "";
+      const match = /filename="([^"]+)"/.exec(contentDisposition);
+      const filename = match ? match[1] : `archive-selected-${batchId}.zip`;
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+      setStatus(`Скачаны выбранные фото из архива: ${filename}`);
+    })
+    .catch((err) => setStatus(`Ошибка скачивания выбранного архива: ${String(err)}`, true));
+}
+
+function closeArchiveModal() {
+  if (!archiveModalEl || !archiveModalGridEl) return;
+  archiveModalEl.classList.remove("active");
+  archiveModalEl.setAttribute("aria-hidden", "true");
+  archiveModalGridEl.innerHTML = "";
+  state.archiveModal = null;
+}
+
+async function openArchiveModal(batchId) {
+  if (!archiveModalEl || !archiveModalGridEl || !archiveModalTitleEl) return;
+  const detail = await fetchArchiveBatchDetail(batchId);
+  const photos = detail.photos || [];
+  archiveModalTitleEl.textContent = `${detail.photographer} | ${photos.length} фото`;
+  if (!photos.length) {
+    archiveModalGridEl.innerHTML = '<div class="muted">Нет файлов для просмотра.</div>';
+  } else {
+    archiveModalGridEl.innerHTML = photos.map((photo, index) => `
+      <div class="archive-modal-item">
+        <label class="archive-modal-check">
+          <input type="checkbox" data-archive-select-photo-id="${esc(photo.id)}" />
+        </label>
+        <button class="archive-modal-thumb"
+          type="button"
+          data-action="archive-open-photo"
+          data-archive-index="${index}"
+          title="${esc(photo.filename)}">
+          <img data-archive-modal-photo-id="${esc(photo.id)}" alt="${esc(photo.filename)}" />
+        </button>
+      </div>
+    `).join("");
+    const imgTargets = [...archiveModalGridEl.querySelectorAll("img[data-archive-modal-photo-id]")];
+    for (const imgEl of imgTargets) {
+      const photoId = imgEl.getAttribute("data-archive-modal-photo-id") || "";
+      const photo = photos.find((item) => item.id === photoId);
+      if (!photo) continue;
+      try {
+        const objectUrl = await fetchBlobObjectUrl(photo.thumbnail_url || photo.image_url, state.imageObjectUrls, photo.id);
+        imgEl.src = objectUrl;
+      } catch (_err) {
+        imgEl.alt = `${imgEl.alt || "preview"} (ошибка)`;
+      }
+    }
+  }
+  state.archiveModal = {
+    batchId,
+    photos: photos.map((photo) => ({
+      photoId: photo.id,
+      originalSrc: photo.image_url,
+      filename: photo.filename,
+    })),
+    selectedPhotoIds: new Set(),
+  };
+  archiveModalEl.classList.add("active");
+  archiveModalEl.setAttribute("aria-hidden", "false");
 }
 
 async function uploadBatchToYandex(batchId) {
@@ -646,13 +1096,48 @@ function bindIfExists(element, eventName, handler) {
 bindIfExists(document.getElementById("loginBtn"), "click", () => login().catch((e) => setStatus(String(e), true)));
 bindIfExists(document.getElementById("logoutBtn"), "click", logout);
 bindIfExists(document.getElementById("refreshBtn"), "click", () => {
-  Promise.all([fetchNotifications(), fetchBatchesAndRender()]).catch((e) => setStatus(String(e), true));
+  Promise.all([
+    fetchNotifications(),
+    fetchBatchesAndRender(),
+    fetchArchiveData(),
+    loadArchiveSettings(),
+    fetchAuthMe(),
+    state.userRole === "admin" ? loadAdminSettings() : Promise.resolve(),
+  ])
+    .catch((e) => setStatus(String(e), true));
 });
 bindIfExists(document.getElementById("enablePushBtn"), "click", () => enablePush().catch((e) => setStatus(String(e), true)));
 bindIfExists(document.getElementById("disablePushBtn"), "click", () => disablePush().catch((e) => setStatus(String(e), true)));
 bindIfExists(document.getElementById("testPushBtn"), "click", () => sendTestPush().catch((e) => setStatus(String(e), true)));
 bindIfExists(document.getElementById("realBatchBtn"), "click", () => triggerRealBatch().catch((e) => setStatus(String(e), true)));
-bindIfExists(document.getElementById("markReadBtn"), "click", () => markRead().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("clearNotificationsBtn"), "click", () => clearNotifications().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("saveArchiveSettingsBtn"), "click", () => saveArchiveSettings().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("clearArchiveBtn"), "click", () => clearArchive().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("adminLoadSettingsBtn"), "click", () => loadAdminSettings().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("adminSaveSettingsBtn"), "click", () => saveAdminSettings().catch((e) => setStatus(String(e), true)));
+bindIfExists(document.getElementById("adminApplyFtpBtn"), "click", () => applyAdminFtpSettings().catch((e) => setStatus(String(e), true)));
+for (const toggleBtn of document.querySelectorAll("[data-toggle-password]")) {
+  bindIfExists(toggleBtn, "click", () => {
+    const selector = toggleBtn.getAttribute("data-toggle-password");
+    if (!selector) return;
+    const input = document.querySelector(selector);
+    if (!(input instanceof HTMLInputElement)) return;
+    input.type = input.type === "password" ? "text" : "password";
+  });
+}
+bindIfExists(archiveTtlUpBtnEl, "click", () => stepTtlValue(1));
+bindIfExists(archiveTtlDownBtnEl, "click", () => stepTtlValue(-1));
+bindIfExists(archiveLimitUpBtnEl, "click", () => {
+  if (!archiveLimitInputEl) return;
+  archiveLimitInputEl.stepUp();
+});
+bindIfExists(archiveLimitDownBtnEl, "click", () => {
+  if (!archiveLimitInputEl) return;
+  archiveLimitInputEl.stepDown();
+  if (Number(archiveLimitInputEl.value || "0") < 1) {
+    archiveLimitInputEl.value = "1";
+  }
+});
 for (const btn of tabButtons) {
   btn.addEventListener("click", () => setActiveTab(btn.getAttribute("data-tab-target")));
 }
@@ -663,7 +1148,45 @@ bindIfExists(lightboxDownloadBtnEl, "click", () => downloadLightboxOriginal().ca
 bindIfExists(lightboxEl, "click", (event) => {
   if (event.target === lightboxEl) closeLightbox();
 });
+bindIfExists(archiveModalCloseBtnEl, "click", closeArchiveModal);
+bindIfExists(archiveModalDownloadBtnEl, "click", () => {
+  if (!state.archiveModal?.batchId) return;
+  downloadArchiveBatch(state.archiveModal.batchId);
+});
+bindIfExists(archiveModalDownloadSelectedBtnEl, "click", () => {
+  if (!state.archiveModal?.batchId) return;
+  const selected = [...(state.archiveModal.selectedPhotoIds || [])];
+  downloadSelectedArchiveBatch(state.archiveModal.batchId, selected);
+});
+bindIfExists(archiveModalEl, "click", (event) => {
+  if (event.target === archiveModalEl) closeArchiveModal();
+});
+bindIfExists(archiveModalGridEl, "change", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (target.getAttribute("data-archive-select-photo-id") === null) return;
+  const photoId = target.getAttribute("data-archive-select-photo-id") || "";
+  if (!photoId) return;
+  if (!state.archiveModal?.selectedPhotoIds) return;
+  if (target.checked) state.archiveModal.selectedPhotoIds.add(photoId);
+  else state.archiveModal.selectedPhotoIds.delete(photoId);
+});
+bindIfExists(archiveModalGridEl, "click", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const actionEl = target.closest("[data-action]");
+  if (!(actionEl instanceof HTMLElement)) return;
+  const action = actionEl.getAttribute("data-action");
+  if (action !== "archive-open-photo") return;
+  const index = Number(actionEl.getAttribute("data-archive-index") || "0");
+  const photos = state.archiveModal?.photos || [];
+  openLightboxAt(photos, Number.isFinite(index) ? index : 0).catch((e) => setStatus(String(e), true));
+});
 window.addEventListener("keydown", (event) => {
+  if (state.archiveModal && event.key === "Escape") {
+    closeArchiveModal();
+    return;
+  }
   if (!state.lightbox) return;
   if (event.key === "Escape") {
     closeLightbox();
@@ -721,9 +1244,32 @@ bindIfExists(batchesEl, "click", (event) => {
     openLightbox(photoId, originalSrc, filename).catch((e) => setStatus(String(e), true));
   }
 });
+bindIfExists(archiveBatchesEl, "click", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const actionEl = target.closest("[data-action]");
+  if (!(actionEl instanceof HTMLElement)) return;
+  const action = actionEl.getAttribute("data-action");
+  const batchId = actionEl.getAttribute("data-batch-id");
+  if (action === "download-archive" && batchId) {
+    downloadArchiveBatch(batchId);
+    return;
+  }
+  if (action === "view-archive-all" && batchId) {
+    openArchiveModal(batchId).catch((e) => setStatus(String(e), true));
+  }
+});
 
 if (state.token) {
-  Promise.all([fetchNotifications(), loadAutoYandexMode(), fetchBatchesAndRender()])
+  Promise.all([
+    fetchAuthMe(),
+    fetchNotifications(),
+    fetchBatchesAndRender(),
+    fetchArchiveData(),
+    loadArchiveSettings(),
+  ])
+    .then(() => (state.userRole === "admin" ? loadAutoYandexMode() : Promise.resolve()))
+    .then(() => (state.userRole === "admin" ? loadAdminSettings() : Promise.resolve()))
     .then(startPolling)
     .then(() => setStatus("Сессия восстановлена, polling активен"))
     .catch((e) => {

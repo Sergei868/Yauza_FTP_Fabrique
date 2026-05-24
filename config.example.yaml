@@ -48,9 +48,12 @@ api:
   port: 8000
 
 auth:
-  # MVP: один пользователь бильда из конфига
+  # Основной пользователь бильда
   username: bild
   password: CHANGE_ME_STRONG_PASSWORD
+  # Админ-пользователь: видит расширенные настройки системы
+  admin_username: admin
+  admin_password: CHANGE_ME_ADMIN_PASSWORD
   jwt_secret: CHANGE_ME_VERY_LONG_RANDOM_SECRET
   token_ttl_minutes: 120
 

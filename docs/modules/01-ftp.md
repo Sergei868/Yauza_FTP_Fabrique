@@ -52,3 +52,12 @@ FTP user: upload  →  chroot: /srv/yauza/incoming
 ## Следующий модуль
 
 После успешного теста → [02-batch-watcher.md](02-batch-watcher.md).
+
+## Обновление (admin apply)
+
+- Добавлен admin-only серверный apply-шаг из веб-кабинета:
+  - `POST /api/admin/apply-ftp`
+- Он применяет FTP-учетки и права без ручного редактирования `/etc/vsftpd.conf`.
+- Профили доступа:
+  - фотограф: только upload в `incoming` (без download/delete/rename),
+  - бильд: upload/download/delete в `incoming`, выше chroot не поднимается.

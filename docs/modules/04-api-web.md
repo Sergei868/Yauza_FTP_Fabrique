@@ -9,6 +9,7 @@
 - Реализованы endpoints:
   - `GET /health`
   - `POST /api/auth/token` (логин бильда, выдача JWT)
+  - `GET /api/auth/me` (роль текущего пользователя)
   - `GET /api/batches?limit=...`
   - `GET /api/batches/{batch_id}`
   - `GET /api/batches/{batch_id}/download`
@@ -39,6 +40,15 @@
   - `POST /api/batches/{batch_id}/upload-yandex`;
   - `GET /api/yandex/auto-upload`;
   - `POST /api/yandex/auto-upload`.
+- Добавлен admin-only контур настроек:
+  - `GET /api/admin/settings`
+  - `POST /api/admin/settings`
+  - в UI при входе под admin показывается секция администрирования:
+    - логин/пароль бильда,
+    - логин/пароль admin,
+    - логин/пароль FTP-бильда,
+    - логин/пароль FTP-фотографа,
+    - OAuth токен и путь зеркала Я.Диска.
 
 ## Где код
 
@@ -57,5 +67,6 @@ photofactory-api --config /etc/yauza/config.yaml
 ## Ограничения текущего шага
 
 1. Я.Диск требует корректный OAuth token в runtime-конфиге.
-2. Модель пользователей бильдов пока конфиговая (`config.yaml`), без ролей в БД.
+2. Роли `bild/admin` пока без отдельной user-таблицы; учетные данные и сервисные секреты хранятся в `app_settings`.
 3. Скрытие "неактуальных" пакетов реализуется по факту наличия файлов в `incoming`.
+4. FTP-учетки в admin-секции пока управляются как runtime-настройки приложения; автоматическое применение в системный `vsftpd` будет отдельным шагом.

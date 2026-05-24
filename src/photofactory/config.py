@@ -40,6 +40,8 @@ class ApiConfig:
 class AuthConfig:
     username: str
     password: str
+    admin_username: str
+    admin_password: str
     jwt_secret: str
     token_ttl_minutes: int
 
@@ -154,6 +156,8 @@ def load_config(path: str | Path) -> AppConfig:
     auth_config = AuthConfig(
         username=str(auth.get("username", "bild")),
         password=str(auth.get("password", "CHANGE_ME")),
+        admin_username=str(auth.get("admin_username", "admin")),
+        admin_password=str(auth.get("admin_password", "CHANGE_ME_ADMIN")),
         jwt_secret=str(auth.get("jwt_secret", "CHANGE_ME_JWT_SECRET")),
         token_ttl_minutes=int(auth.get("token_ttl_minutes", 120)),
     )

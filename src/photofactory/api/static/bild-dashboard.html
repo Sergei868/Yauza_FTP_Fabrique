@@ -3,19 +3,20 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Photofactory Bild Dashboard</title>
+  <title>Bildboard Yauza</title>
   <style>
     :root {
-      --bg: #f6f8fb;
-      --surface: #fff;
-      --text: #1f2937;
-      --muted: #6b7280;
-      --border: #e5e7eb;
-      --border-strong: #d1d5db;
-      --accent: #2563eb;
-      --ok: #0f766e;
-      --err: #b91c1c;
-      --chip: #eef2ff;
+      --bg: #1f2329;
+      --surface: #2a2f36;
+      --text: #e5e7eb;
+      --muted: #a5adba;
+      --border: #3b4350;
+      --border-strong: #4b5563;
+      --accent: #60a5fa;
+      --ok: #34d399;
+      --err: #f87171;
+      --chip: #1f2937;
+      --control-h: 39px;
     }
     * { box-sizing: border-box; }
     body {
@@ -41,14 +42,14 @@
     }
     .tab-btn {
       border: 1px solid var(--border-strong);
-      background: #f9fafb;
-      color: #334155;
+      background: #1f2937;
+      color: #cbd5e1;
       font-weight: 600;
     }
     .tab-btn.active {
       border-color: var(--accent);
-      color: #1d4ed8;
-      background: #eff6ff;
+      color: #93c5fd;
+      background: #0f172a;
     }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
@@ -60,27 +61,52 @@
     }
     .row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0; }
     .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.4rem; }
+    .settings-auth-row { margin-bottom: 1.35rem; }
+    .settings-actions-row {
+      margin-top: 2rem;
+      margin-bottom: 2rem;
+    }
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.6rem;
+      margin-bottom: 0.35rem;
+    }
+    .btn-small {
+      padding: 0.3rem 0.55rem;
+      font-size: 0.78rem;
+      line-height: 1.1;
+      border-radius: 7px;
+    }
     input, button, select {
       padding: 0.55rem 0.7rem;
       border: 1px solid var(--border-strong);
       border-radius: 8px;
-      background: #fff;
+      background: #20262d;
       color: var(--text);
     }
     button { cursor: pointer; }
     button:hover { border-color: #9ca3af; }
     button:disabled { opacity: 0.7; cursor: not-allowed; }
     input, select { min-width: 150px; }
+    .toolbar button { height: var(--control-h); }
     input[type="search"] { min-width: 260px; flex: 1 1 260px; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .status { margin-top: 0.4rem; font-size: 0.93rem; }
+    .status {
+      margin-top: 1.15rem;
+      margin-bottom: 1.15rem;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      color: var(--muted);
+    }
     .status.error { color: var(--err); }
     .status.ok { color: var(--ok); }
     .kpi { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.4rem 0 0.6rem; }
     .chip {
       background: var(--chip);
-      border: 1px solid #c7d2fe;
-      color: #3730a3;
+      border: 1px solid #334155;
+      color: #cbd5e1;
       padding: 0.22rem 0.55rem;
       border-radius: 999px;
       font-size: 0.82rem;
@@ -92,7 +118,7 @@
       border-radius: 12px;
       padding: 0.85rem;
       margin: 0.75rem 0;
-      background: #fff;
+      background: #1f2630;
     }
     .batch-top {
       display: flex;
@@ -109,14 +135,106 @@
       border-radius: 999px;
       padding: 0.15rem 0.5rem;
       font-size: 0.78rem;
-      color: #334155;
-      background: #f8fafc;
+      color: #cbd5e1;
+      background: #111827;
     }
     .gallery {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
       gap: 0.45rem;
       margin-top: 0.5rem;
+    }
+    .archive-preview-row {
+      display: flex;
+      gap: 0.4rem;
+      margin-top: 0.5rem;
+      overflow-x: auto;
+      padding-bottom: 0.2rem;
+    }
+    .archive-preview-item {
+      width: 74px;
+      height: 74px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #111827;
+      object-fit: cover;
+      flex: 0 0 auto;
+    }
+    .archive-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.76);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1.2rem;
+      z-index: 1001;
+    }
+    .archive-modal.active { display: flex; }
+    .archive-modal-content {
+      width: min(96vw, 1150px);
+      max-height: 92vh;
+      overflow: hidden;
+      background: #0b1220;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 0.5rem;
+      padding: 0.7rem;
+    }
+    .archive-modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .archive-modal-grid {
+      overflow: auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      gap: 0.5rem;
+      padding-right: 0.2rem;
+    }
+    .archive-modal-thumb {
+      width: 100%;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      background: #111827;
+      padding: 0.2rem;
+      cursor: pointer;
+      min-height: 88px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .archive-modal-item {
+      position: relative;
+    }
+    .archive-modal-check {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      z-index: 2;
+      width: 20px;
+      height: 20px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid #334155;
+      display: grid;
+      place-items: center;
+    }
+    .archive-modal-check input {
+      margin: 0;
+      min-width: auto;
+    }
+    .archive-modal-thumb img {
+      width: 100%;
+      max-height: 155px;
+      object-fit: contain;
+      border-radius: 6px;
+      display: block;
     }
     .thumb-item { position: relative; }
     .thumb-select {
@@ -138,7 +256,7 @@
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 0.25rem;
-      background: #f8fafc;
+      background: #111827;
       min-height: 110px;
       display: flex;
       align-items: center;
@@ -151,7 +269,7 @@
       max-height: 180px;
       object-fit: contain;
       border-radius: 6px;
-      background: #f3f4f6;
+      background: #0f172a;
       display: block;
     }
     .lightbox {
@@ -162,7 +280,7 @@
       align-items: center;
       justify-content: center;
       padding: 2rem;
-      z-index: 1000;
+      z-index: 1100;
     }
     .lightbox.active { display: flex; }
     .lightbox-content {
@@ -212,7 +330,201 @@
       height: auto;
       object-fit: contain;
     }
-    .checkbox-row { display: flex; gap: 0.45rem; align-items: center; margin-top: 0.6rem; }
+    .checkbox-row {
+      display: flex;
+      gap: 0.12rem;
+      align-items: center;
+      margin-top: 0.1rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .double-gap-top {
+      margin-top: 1.2rem;
+    }
+    .double-gap-bottom {
+      margin-bottom: 1.2rem;
+    }
+    .checkbox-row input[type="checkbox"] {
+      min-width: auto;
+      width: 16px;
+      height: 16px;
+      padding: 0;
+      margin: 0;
+      border-radius: 4px;
+      transform: translateY(0.5px);
+    }
+    .checkbox-row label {
+      margin-left: 0.05rem;
+      line-height: 1.1;
+      cursor: pointer;
+    }
+    .archive-usage {
+      margin-bottom: 0.7rem;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    .settings-archive-row {
+      margin-top: 1rem;
+      margin-bottom: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      align-items: center;
+    }
+    .settings-archive-row button {
+      height: var(--control-h);
+      display: inline-flex;
+      align-items: center;
+    }
+    #saveArchiveSettingsBtn {
+      margin-right: 1rem;
+    }
+    .number-stepper {
+      display: inline-flex;
+      align-items: stretch;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #20262d;
+      height: var(--control-h);
+    }
+    .number-stepper input {
+      border: none;
+      border-radius: 0;
+      min-width: 84px;
+      width: 84px;
+      height: 100%;
+      padding: 0.45rem 0.65rem;
+      background: #20262d;
+      color: var(--text);
+    }
+    .number-stepper input:focus {
+      outline: none;
+    }
+    .number-stepper input::-webkit-outer-spin-button,
+    .number-stepper input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    .number-stepper input[type="number"] {
+      -moz-appearance: textfield;
+      appearance: textfield;
+    }
+    .stepper-buttons {
+      display: flex;
+      flex-direction: row;
+      border-left: 1px solid var(--border-strong);
+      background: #111827;
+      height: 100%;
+      align-items: stretch;
+    }
+    .step-btn {
+      width: 24px;
+      height: 100%;
+      border: none;
+      border-radius: 0;
+      margin: 0;
+      padding: 0;
+      color: #ffffff;
+      background: transparent;
+      font-size: 0;
+      line-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .step-btn::before {
+      content: "";
+      display: block;
+      width: 0;
+      height: 0;
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+    }
+    .step-btn.step-up::before {
+      border-bottom: 6px solid #ffffff;
+    }
+    .step-btn.step-down::before {
+      border-top: 6px solid #ffffff;
+    }
+    .step-btn:hover {
+      background: #1f2937;
+      border-color: #1f2937;
+    }
+    .admin-panel {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      display: none;
+    }
+    .admin-panel.visible {
+      display: block;
+    }
+    .admin-grid {
+      display: grid;
+      gap: 0.7rem;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      margin-bottom: 0.8rem;
+    }
+    .admin-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.22rem;
+    }
+    .admin-field-label {
+      font-size: 0.72rem;
+      line-height: 1.2;
+      color: var(--muted);
+    }
+    .admin-note {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin: 0.2rem 0 1.6rem;
+    }
+    .password-wrap {
+      display: inline-flex;
+      align-items: stretch;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #20262d;
+      min-width: 220px;
+    }
+    .password-wrap input {
+      border: none;
+      border-radius: 0;
+      min-width: 0;
+      width: 100%;
+      background: #20262d;
+      color: var(--text);
+    }
+    .password-wrap input:focus {
+      outline: none;
+    }
+    .password-toggle {
+      border: none;
+      border-left: 1px solid var(--border-strong);
+      border-radius: 0;
+      min-width: 40px;
+      width: 40px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      background: #111827;
+      color: #e5e7eb;
+      font-size: 0.95rem;
+      line-height: 1;
+    }
+    .password-toggle:hover {
+      background: #1f2937;
+      border-color: #1f2937;
+    }
+    #archiveLimitInput,
+    #archiveTtlInput {
+      min-width: 90px;
+      width: 90px;
+    }
     @media (max-width: 700px) {
       body { padding: 0.7rem; }
       .card { padding: 0.8rem; border-radius: 10px; }
@@ -224,50 +536,198 @@
 <body>
   <div class="layout">
     <header>
-      <h1>Кабинет бильда</h1>
-      <p class="muted">Оперативная работа с пачками: уведомления, галерея, скачивание, зеркало Я.Диска.</p>
+      <h1>Бильдборд</h1>
     </header>
 
     <nav class="tabs" aria-label="Разделы кабинета">
       <button class="tab-btn" data-tab-target="packages">Пакеты</button>
+      <button class="tab-btn" data-tab-target="archive">Архив</button>
       <button class="tab-btn" data-tab-target="notifications">Уведомления</button>
       <button class="tab-btn" data-tab-target="settings">Настройки</button>
     </nav>
 
     <div class="card tab-panel" data-tab-panel="settings">
       <h3>Настройки</h3>
-      <div class="row">
+      <div class="row settings-auth-row">
         <input id="username" value="bild" placeholder="username" />
-        <input id="password" type="password" placeholder="password" />
+        <div class="password-wrap">
+          <input id="password" type="password" placeholder="password" />
+          <button
+            class="password-toggle"
+            type="button"
+            data-toggle-password="#password"
+            aria-label="Показать или скрыть пароль"
+            title="Показать/скрыть пароль"
+          >◉</button>
+        </div>
         <button id="loginBtn">Войти</button>
         <button id="logoutBtn">Выйти</button>
       </div>
-      <div class="toolbar">
+      <div class="toolbar settings-actions-row">
         <button id="enablePushBtn">Включить push</button>
         <button id="disablePushBtn">Отключить push</button>
-        <button id="refreshBtn">Обновить всё</button>
         <button id="testPushBtn">Test push</button>
         <button id="realBatchBtn">Проверка реальной пачкой</button>
-        <button id="markReadBtn">Пометить прочитанными</button>
+        <button id="refreshBtn">Обновить всё</button>
       </div>
-      <div class="checkbox-row">
-        <input id="autoYandexToggle" type="checkbox" />
-        <label for="autoYandexToggle">Авто-загрузка всех входящих на Я.Диск</label>
+      <div class="settings-archive-row double-gap-top">
+        <label for="archiveTtlInput">Время жизни локального архива (часов):</label>
+        <div class="number-stepper">
+          <input id="archiveTtlInput" type="number" min="1" step="1" />
+          <div class="stepper-buttons">
+            <button id="archiveTtlUpBtn" class="step-btn step-up" type="button" aria-label="Увеличить время жизни"></button>
+            <button id="archiveTtlDownBtn" class="step-btn step-down" type="button" aria-label="Уменьшить время жизни"></button>
+          </div>
+        </div>
+        <label for="archiveLimitInput">Лимит архива (ГБ):</label>
+        <div class="number-stepper">
+          <input id="archiveLimitInput" type="number" min="1" step="1" />
+          <div class="stepper-buttons">
+            <button id="archiveLimitUpBtn" class="step-btn step-up" type="button" aria-label="Увеличить лимит"></button>
+            <button id="archiveLimitDownBtn" class="step-btn step-down" type="button" aria-label="Уменьшить лимит"></button>
+          </div>
+        </div>
+        <button id="saveArchiveSettingsBtn">Сохранить настройки архива</button>
+        <button id="clearArchiveBtn">Очистить архив</button>
       </div>
       <div id="status" class="mono status"></div>
+      <div id="adminPanel" class="admin-panel">
+        <h3>Админ-настройки</h3>
+        <p class="admin-note">Поля ниже доступны только при входе под админ-логином. Пароли не отображаются после сохранения.</p>
+        <div class="admin-grid">
+          <div class="admin-field">
+            <label class="admin-field-label" for="adminBildUsername">Бильд: логин кабинета</label>
+            <input id="adminBildUsername" placeholder="Логин бильда" />
+          </div>
+          <div class="admin-field">
+            <label class="admin-field-label" for="adminBildPassword">Бильд: пароль кабинета</label>
+            <div class="password-wrap">
+              <input id="adminBildPassword" type="password" placeholder="Новый пароль бильда (опц.)" />
+              <button
+                class="password-toggle"
+                type="button"
+                data-toggle-password="#adminBildPassword"
+                aria-label="Показать или скрыть пароль"
+                title="Показать/скрыть пароль"
+              >◉</button>
+            </div>
+          </div>
+          <div class="admin-field">
+            <label class="admin-field-label" for="adminAdminUsername">Админ: логин кабинета</label>
+            <input id="adminAdminUsername" placeholder="Логин админа" />
+          </div>
+          <div class="admin-field">
+            <label class="admin-field-label" for="adminAdminPassword">Админ: пароль кабинета</label>
+            <div class="password-wrap">
+              <input id="adminAdminPassword" type="password" placeholder="Новый пароль админа (опц.)" />
+              <button
+                class="password-toggle"
+                type="button"
+                data-toggle-password="#adminAdminPassword"
+                aria-label="Показать или скрыть пароль"
+                title="Показать/скрыть пароль"
+              >◉</button>
+            </div>
+          </div>
+        </div>
+        <div class="admin-grid">
+          <div class="admin-field">
+            <label class="admin-field-label" for="adminFtpBildUsername">FTP бильд: логин</label>
+            <input id="adminFtpBildUsername" placeholder="FTP логин бильда" />
+          </div>
+          <div class="admin-field">
+            <label class="admin-field-label" for="adminFtpBildPassword">FTP бильд: пароль</label>
+            <div class="password-wrap">
+              <input id="adminFtpBildPassword" type="password" placeholder="FTP пароль бильда (опц.)" />
+              <button
+                class="password-toggle"
+                type="button"
+                data-toggle-password="#adminFtpBildPassword"
+                aria-label="Показать или скрыть пароль"
+                title="Показать/скрыть пароль"
+              >◉</button>
+            </div>
+          </div>
+          <div class="admin-field">
+            <label class="admin-field-label" for="adminFtpPhotographerUsername">FTP фотограф: логин</label>
+            <input id="adminFtpPhotographerUsername" placeholder="FTP логин фотографа" />
+          </div>
+          <div class="admin-field">
+            <label class="admin-field-label" for="adminFtpPhotographerPassword">FTP фотограф: пароль</label>
+            <div class="password-wrap">
+              <input id="adminFtpPhotographerPassword" type="password" placeholder="FTP пароль фотографа (опц.)" />
+              <button
+                class="password-toggle"
+                type="button"
+                data-toggle-password="#adminFtpPhotographerPassword"
+                aria-label="Показать или скрыть пароль"
+                title="Показать/скрыть пароль"
+              >◉</button>
+            </div>
+          </div>
+        </div>
+        <div class="admin-grid double-gap-top">
+          <div class="admin-field">
+            <label class="admin-field-label" for="adminYandexToken">Я.Диск: OAuth токен</label>
+            <div class="password-wrap">
+              <input id="adminYandexToken" type="password" placeholder="OAuth токен Я.Диск (опц.)" />
+              <button
+                class="password-toggle"
+                type="button"
+                data-toggle-password="#adminYandexToken"
+                aria-label="Показать или скрыть пароль"
+                title="Показать/скрыть пароль"
+              >◉</button>
+            </div>
+          </div>
+          <div class="admin-field">
+            <label class="admin-field-label" for="adminYandexRemotePath">Я.Диск: путь зеркала</label>
+            <input id="adminYandexRemotePath" placeholder="Путь зеркала Я.Диск" />
+          </div>
+        </div>
+        <div class="checkbox-row double-gap-bottom">
+          <input id="autoYandexToggle" type="checkbox" />
+          <label for="autoYandexToggle">&nbsp;Авто-загрузка всех входящих на Я.Диск</label>
+        </div>
+        <div class="row">
+          <button id="adminLoadSettingsBtn">Прочитать текущие настройки</button>
+          <button id="adminSaveSettingsBtn">Сохранить админ-настройки</button>
+          <button id="adminApplyFtpBtn">Применить FTP-настройки на сервере</button>
+        </div>
+      </div>
     </div>
 
     <div class="card tab-panel" data-tab-panel="notifications">
-      <h3>Уведомления</h3>
+      <div class="section-head">
+        <h3>Уведомления</h3>
+        <button id="clearNotificationsBtn" class="btn-small">Очистить уведомления</button>
+      </div>
       <div id="meta" class="mono"></div>
       <div id="notifications"></div>
     </div>
 
     <div class="card tab-panel" data-tab-panel="packages">
-      <h3>Пакеты</h3>
-      <p class="muted">Показываются только актуальные пакеты (файлы, которые сейчас лежат в incoming).</p>
       <div id="batchStats" class="kpi"></div>
       <div id="batches"></div>
+    </div>
+
+    <div class="card tab-panel" data-tab-panel="archive">
+      <div id="archiveUsage" class="archive-usage mono">Архив: -</div>
+      <div id="archiveBatches"></div>
+    </div>
+  </div>
+
+  <div id="archiveModal" class="archive-modal" aria-hidden="true">
+    <div class="archive-modal-content" role="dialog" aria-modal="true">
+      <div class="archive-modal-head">
+        <div id="archiveModalTitle" class="mono">Архивный пакет</div>
+        <div class="row" style="margin:0;">
+          <button id="archiveModalDownloadSelectedBtn">Скачать выбранное</button>
+          <button id="archiveModalDownloadBtn">Скачать пакет</button>
+          <button id="archiveModalCloseBtn">Закрыть</button>
+        </div>
+      </div>
+      <div id="archiveModalGrid" class="archive-modal-grid"></div>
     </div>
   </div>
 
@@ -288,6 +748,6 @@
       </div>
     </div>
   </div>
-  <script src="/bild-dashboard.js?v=20260523-1142"></script>
+  <script src="/bild-dashboard.js?v=20260524-2155"></script>
 </body>
 </html>

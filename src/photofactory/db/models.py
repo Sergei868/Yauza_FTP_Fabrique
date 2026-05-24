@@ -41,6 +41,8 @@ class Batch(Base):
     total_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     silence_age_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    removed_from_incoming_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archive_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     photographer: Mapped["Photographer"] = relationship(back_populates="batches")

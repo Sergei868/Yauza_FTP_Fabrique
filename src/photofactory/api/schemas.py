@@ -48,6 +48,60 @@ class BatchDetail(BaseModel):
     photos: list[BatchPhotoItem]
 
 
+class ArchiveBatchListItem(BaseModel):
+    id: str
+    batch_key: str
+    photographer: str
+    file_count: int
+    broken_files_count: int
+    daily_sequence: int
+    total_size_bytes: int
+    archive_name: str
+    captured_at: datetime
+    removed_from_incoming_at: datetime
+    archive_expires_at: datetime
+
+
+class ArchiveBatchDetail(BaseModel):
+    id: str
+    batch_key: str
+    photographer: str
+    file_count: int
+    broken_files_count: int
+    daily_sequence: int
+    total_size_bytes: int
+    archive_name: str
+    captured_at: datetime
+    removed_from_incoming_at: datetime
+    archive_expires_at: datetime
+    photos: list[BatchPhotoItem]
+
+
+class ArchiveUsageResponse(BaseModel):
+    used_bytes: int
+    used_gb: float
+    limit_gb: int
+    usage_percent: float
+
+
+class ArchiveSettingsResponse(BaseModel):
+    ttl_hours: int
+    ttl_options_hours: list[int]
+    limit_gb: int
+
+
+class ArchiveSettingsUpdateRequest(BaseModel):
+    ttl_hours: int
+    limit_gb: int
+
+
+class ArchiveClearResponse(BaseModel):
+    status: str
+    cleared_batches: int
+    deleted_files: int
+    deleted_bytes: int
+
+
 class HealthResponse(BaseModel):
     status: str
 
@@ -56,6 +110,48 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in_seconds: int
+    role: str
+
+
+class AuthMeResponse(BaseModel):
+    username: str
+    role: str
+
+
+class AdminSettingsResponse(BaseModel):
+    bild_username: str
+    bild_password: str | None = None
+    admin_username: str
+    admin_password: str | None = None
+    ftp_bild_username: str
+    ftp_bild_password: str | None = None
+    ftp_bild_password_set: bool
+    ftp_photographer_username: str
+    ftp_photographer_password: str | None = None
+    ftp_photographer_password_set: bool
+    yandex_token_set: bool
+    yandex_oauth_token: str | None = None
+    yandex_remote_base_path: str
+
+
+class AdminSettingsUpdateRequest(BaseModel):
+    bild_username: str | None = None
+    bild_password: str | None = None
+    admin_username: str | None = None
+    admin_password: str | None = None
+    ftp_bild_username: str | None = None
+    ftp_bild_password: str | None = None
+    ftp_photographer_username: str | None = None
+    ftp_photographer_password: str | None = None
+    yandex_oauth_token: str | None = None
+    yandex_remote_base_path: str | None = None
+
+
+class AdminApplyFtpResponse(BaseModel):
+    status: str
+    ftp_bild_username: str
+    ftp_photographer_username: str
+    details: str
 
 
 class NotificationItem(BaseModel):
@@ -66,17 +162,18 @@ class NotificationItem(BaseModel):
     channel: str
     status: str
     batch_id: str | None
+    batch_key: str | None = None
+    file_count: int | None = None
+    total_size_bytes: int | None = None
+    daily_sequence: int | None = None
+    captured_at: datetime | None = None
     photographer: str | None
     created_at: datetime
 
 
-class NotificationMarkReadRequest(BaseModel):
-    mode: str = "all"
-
-
-class NotificationMarkReadResponse(BaseModel):
+class NotificationClearResponse(BaseModel):
     status: str
-    updated: int
+    deleted: int
 
 
 class SmokeBatchRequest(BaseModel):

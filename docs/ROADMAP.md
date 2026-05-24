@@ -9,6 +9,7 @@
 | 0.1 | `PROJECT.md`, `config.example.yaml`, структура `docs/` | done |
 | 0.2 | Согласовать путь на VPS (`/srv/yauza/`) | done |
 | 0.3 | Очистка VPS ([VPS-CLEANUP.md](VPS-CLEANUP.md)) | done |
+| 0.4 | Safety checkpoint перед аудитом/рефакторингом (git tag + DB/runtime backup + запись в docs) | in_progress |
 
 ## Фаза 1 — FTP
 
@@ -82,6 +83,17 @@
 | 7.6 | Мини-юзабилити тест с бильдами, фиксация обратной связи | in_progress |
 | 7.7 | Zoom в lightbox (`+/-`, wheel, fit/100%, scale indicator) | in_progress |
 | Док | [modules/07-ui-ux-bild.md](modules/07-ui-ux-bild.md) | in_progress |
+
+## Фаза 8 — Архив originals и TTL
+
+| Шаг | Описание | Статус |
+|-----|----------|--------|
+| 8.1 | Хранить файлы в `originals` после удаления из `incoming`, запуск TTL от момента "ушёл из incoming" | in_progress |
+| 8.2 | Настройки TTL: `1ч,2ч,3ч,4ч,5ч,6ч,8ч,12ч,24ч,36ч` (default `3ч`) | in_progress |
+| 8.3 | Автоочистка `originals` по TTL + ручная кнопка `Очистить архив` | in_progress |
+| 8.4 | Вкладка `Архив`: список/галерея пакетов в окне TTL с повторным скачиванием | in_progress |
+| 8.5 | Индикатор заполнения архива: лимит (ГБ) в настройках + прогресс (%) в `Архиве` | in_progress |
+| Док | [modules/08-archive-retention.md](modules/08-archive-retention.md) | in_progress |
 
 ## Позже (вне текущего MVP)
 

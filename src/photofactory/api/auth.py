@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -13,10 +14,17 @@ from photofactory.config import AppConfig
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def create_access_token(config: AppConfig, username: str) -> str:
+@dataclass(frozen=True)
+class AuthUser:
+    username: str
+    role: str
+
+
+def create_access_token(config: AppConfig, username: str, role: str) -> str:
     expires_at = datetime.now(tz=timezone.utc) + timedelta(minutes=config.auth.token_ttl_minutes)
     payload = {
         "sub": username,
+        "role": role,
         "exp": expires_at,
     }
     return jwt.encode(payload, config.auth.jwt_secret, algorithm="HS256")
@@ -25,7 +33,7 @@ def create_access_token(config: AppConfig, username: str) -> str:
 def require_auth(config: AppConfig):
     def _dep(
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    ) -> str:
+    ) -> AuthUser:
         if credentials is None or credentials.scheme.lower() != "bearer":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -40,11 +48,26 @@ def require_auth(config: AppConfig):
                 detail="Invalid token",
             ) from exc
         username = payload.get("sub")
-        if username != config.auth.username:
+        role = payload.get("role")
+        if not username or role not in {"bild", "admin"}:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token subject",
+                detail="Invalid token payload",
             )
-        return username
+        return AuthUser(username=username, role=role)
+
+    return _dep
+
+
+def require_admin(config: AppConfig):
+    base_dep = require_auth(config)
+
+    def _dep(user: AuthUser = Depends(base_dep)) -> AuthUser:
+        if user.role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin access required",
+            )
+        return user
 
     return _dep

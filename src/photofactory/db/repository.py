@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from datetime import timezone
-
 from photofactory.db.models import AppSetting, Batch, Notification, Photo, Photographer, PushSubscription
+
+ARCHIVE_TTL_HOURS_KEY = "archive.retention_hours"
+ARCHIVE_LIMIT_GB_KEY = "archive.limit_gb"
+DEFAULT_ARCHIVE_TTL_HOURS = 3
+DEFAULT_ARCHIVE_LIMIT_GB = 10
 
 
 def get_or_create_photographer(session: Session, folder_name: str) -> Photographer:
@@ -73,7 +76,7 @@ def list_recent_batches(
 ) -> list[Batch]:
     query = select(Batch)
     if not include_downloaded:
-        query = query.where(Batch.status != "downloaded")
+        query = query.where(and_(Batch.status != "downloaded", Batch.status != "archived_deleted"))
     query = query.order_by(Batch.created_at.desc()).limit(limit)
     return list(session.execute(query).scalars())
 
@@ -88,6 +91,47 @@ def mark_batch_downloaded(session: Session, batch_id: str) -> bool:
     if batch is None:
         return False
     batch.status = "downloaded"
+    session.flush()
+    return True
+
+
+def mark_batch_removed_from_incoming(
+    session: Session,
+    *,
+    batch_id: str,
+    removed_at: datetime | None = None,
+    retention_hours: int | None = None,
+) -> bool:
+    batch = get_batch_by_id(session, batch_id)
+    if batch is None:
+        return False
+    if batch.removed_from_incoming_at is not None:
+        return True
+    effective_removed_at = removed_at or datetime.now(tz=timezone.utc)
+    effective_retention_hours = retention_hours if retention_hours is not None else get_archive_retention_hours(session)
+    batch.removed_from_incoming_at = effective_removed_at
+    batch.archive_expires_at = effective_removed_at + timedelta(hours=effective_retention_hours)
+    session.flush()
+    return True
+
+
+def clear_batch_removed_from_incoming(session: Session, *, batch_id: str) -> bool:
+    batch = get_batch_by_id(session, batch_id)
+    if batch is None:
+        return False
+    if batch.removed_from_incoming_at is None and batch.archive_expires_at is None:
+        return False
+    batch.removed_from_incoming_at = None
+    batch.archive_expires_at = None
+    session.flush()
+    return True
+
+
+def mark_batch_archived_deleted(session: Session, *, batch_id: str) -> bool:
+    batch = get_batch_by_id(session, batch_id)
+    if batch is None:
+        return False
+    batch.status = "archived_deleted"
     session.flush()
     return True
 
@@ -151,11 +195,11 @@ def list_recent_notifications(session: Session, limit: int = 100) -> list[Notifi
     return list(session.execute(query).scalars())
 
 
-def mark_all_notifications_read(session: Session) -> int:
-    query = select(Notification).where(Notification.status != "read")
+def delete_all_notifications(session: Session) -> int:
+    query = select(Notification)
     entities = list(session.execute(query).scalars())
     for item in entities:
-        item.status = "read"
+        session.delete(item)
     session.flush()
     return len(entities)
 
@@ -253,3 +297,89 @@ def increment_daily_counter(session: Session, *, key_prefix: str, day_key: str) 
     set_app_setting(session, key=key, value=str(next_value))
     session.flush()
     return next_value
+
+
+def get_archive_retention_hours(session: Session) -> int:
+    raw = get_app_setting(session, ARCHIVE_TTL_HOURS_KEY, default=str(DEFAULT_ARCHIVE_TTL_HOURS))
+    try:
+        value = int(raw)
+    except ValueError:
+        value = DEFAULT_ARCHIVE_TTL_HOURS
+    return max(1, value)
+
+
+def set_archive_retention_hours(session: Session, value: int) -> int:
+    normalized = max(1, int(value))
+    set_app_setting(session, key=ARCHIVE_TTL_HOURS_KEY, value=str(normalized))
+    return normalized
+
+
+def get_archive_limit_gb(session: Session) -> int:
+    raw = get_app_setting(session, ARCHIVE_LIMIT_GB_KEY, default=str(DEFAULT_ARCHIVE_LIMIT_GB))
+    try:
+        value = int(raw)
+    except ValueError:
+        value = DEFAULT_ARCHIVE_LIMIT_GB
+    return max(1, value)
+
+
+def set_archive_limit_gb(session: Session, value: int) -> int:
+    normalized = max(1, int(value))
+    set_app_setting(session, key=ARCHIVE_LIMIT_GB_KEY, value=str(normalized))
+    return normalized
+
+
+def list_batches_for_archive_state_sync(session: Session, limit: int = 500) -> list[Batch]:
+    query = (
+        select(Batch)
+        .where(Batch.status != "archived_deleted")
+        .order_by(Batch.created_at.desc())
+        .limit(limit)
+    )
+    return list(session.execute(query).scalars())
+
+
+def list_batches_for_archive_cleanup(
+    session: Session,
+    *,
+    now: datetime | None = None,
+    limit: int = 500,
+) -> list[Batch]:
+    current_time = now or datetime.now(tz=timezone.utc)
+    query = (
+        select(Batch)
+        .where(
+            and_(
+                Batch.status != "archived_deleted",
+                Batch.removed_from_incoming_at.is_not(None),
+                Batch.archive_expires_at.is_not(None),
+                Batch.archive_expires_at <= current_time,
+            )
+        )
+        .order_by(Batch.archive_expires_at.asc())
+        .limit(limit)
+    )
+    return list(session.execute(query).scalars())
+
+
+def list_archive_batches(
+    session: Session,
+    *,
+    now: datetime | None = None,
+    limit: int = 500,
+) -> list[Batch]:
+    current_time = now or datetime.now(tz=timezone.utc)
+    query = (
+        select(Batch)
+        .where(
+            and_(
+                Batch.status != "archived_deleted",
+                Batch.removed_from_incoming_at.is_not(None),
+                Batch.archive_expires_at.is_not(None),
+                Batch.archive_expires_at > current_time,
+            )
+        )
+        .order_by(Batch.removed_from_incoming_at.desc())
+        .limit(limit)
+    )
+    return list(session.execute(query).scalars())

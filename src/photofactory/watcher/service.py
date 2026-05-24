@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import logging
 import os
@@ -16,6 +17,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from photofactory.config import AppConfig
 from photofactory.db.repository import (
+    get_archive_retention_hours,
+    get_batch_photos,
+    get_photographer_by_id,
+    list_batches_for_archive_cleanup,
+    list_batches_for_archive_state_sync,
+    mark_batch_archived_deleted,
+    mark_batch_downloaded,
+    mark_batch_removed_from_incoming,
     create_batch_with_photos,
     create_in_app_batch_notification,
     get_app_setting,
@@ -24,6 +33,8 @@ from photofactory.notifications.base import BatchNotification, Notifier, NullNot
 from photofactory.storage.yandex_disk import YandexDiskUploader
 
 LOGGER = logging.getLogger(__name__)
+SETTING_YADISK_OAUTH_TOKEN = "yandex_disk.oauth_token.override"
+SETTING_YADISK_REMOTE_BASE = "yandex_disk.remote_base_path.override"
 
 
 @dataclass(frozen=True)
@@ -77,6 +88,7 @@ class BatchWatcher:
             last_processed_ns = self._finalize_batch(photographer_dir, pending_entries, int(age_seconds))
             if last_processed_ns > cutoff_ns:
                 self._store_last_processed_mtime_ns(photographer_dir.name, last_processed_ns)
+        self._run_archive_maintenance()
 
     def _ensure_directories(self) -> None:
         self.config.paths.incoming.mkdir(parents=True, exist_ok=True)
@@ -253,16 +265,31 @@ class BatchWatcher:
     ) -> None:
         if not source_entries or self.session_factory is None:
             return
-        if not self.config.yandex_disk.enabled:
-            return
-
         with self.session_factory() as session:
             auto_mode = get_app_setting(session, "yandex_disk.auto_upload_all", default="false")
             if auto_mode.lower() != "true":
                 return
-        remote_dir = f"{self.config.yandex_disk.remote_base_path.rstrip('/')}/{photographer_name}"
+            runtime_token = get_app_setting(
+                session,
+                SETTING_YADISK_OAUTH_TOKEN,
+                default=self.config.yandex_disk.oauth_token,
+            ).strip()
+            runtime_remote_base = get_app_setting(
+                session,
+                SETTING_YADISK_REMOTE_BASE,
+                default=self.config.yandex_disk.remote_base_path,
+            ).strip()
+        if not self.config.yandex_disk.enabled or not runtime_token:
+            return
+        runtime_cfg = replace(
+            self.config.yandex_disk,
+            oauth_token=runtime_token,
+            remote_base_path=runtime_remote_base or self.config.yandex_disk.remote_base_path,
+            enabled=True,
+        )
+        remote_dir = f"{runtime_cfg.remote_base_path.rstrip('/')}/{photographer_name}"
         source_files = [(entry.path, entry.path.name) for entry in source_entries if entry.path.exists()]
-        uploader = YandexDiskUploader(self.config.yandex_disk)
+        uploader = YandexDiskUploader(runtime_cfg)
         result = uploader.upload_batch_files(local_files=source_files, remote_dir=remote_dir)
         LOGGER.info(
             "Yandex auto-upload complete: dir=%s files=%d",
@@ -296,3 +323,54 @@ class BatchWatcher:
             "updated_at_utc": datetime.now(tz=timezone.utc).isoformat(),
         }
         state_file.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+
+    def _run_archive_maintenance(self) -> None:
+        if self.session_factory is None:
+            return
+        now = datetime.now(tz=timezone.utc)
+        with self.session_factory() as session:
+            retention_hours = get_archive_retention_hours(session)
+            candidates = list_batches_for_archive_state_sync(session, limit=1000)
+            updated_markers = 0
+            for batch in candidates:
+                photographer = get_photographer_by_id(session, batch.photographer_id)
+                photographer_name = photographer.folder_name if photographer else None
+                if not photographer_name:
+                    continue
+                photos = get_batch_photos(session, batch.id)
+                if not photos:
+                    continue
+                incoming_dir = self.config.paths.incoming / photographer_name
+                has_incoming = any((incoming_dir / photo.filename).exists() for photo in photos)
+                if has_incoming:
+                    continue
+                if batch.removed_from_incoming_at is None:
+                    mark_batch_removed_from_incoming(
+                        session,
+                        batch_id=batch.id,
+                        removed_at=now,
+                        retention_hours=retention_hours,
+                    )
+                    mark_batch_downloaded(session, batch.id)
+                    updated_markers += 1
+
+            cleanup_candidates = list_batches_for_archive_cleanup(session, now=now, limit=1000)
+            cleaned_batches = 0
+            for batch in cleanup_candidates:
+                photos = get_batch_photos(session, batch.id)
+                for photo in photos:
+                    source = Path(photo.original_path)
+                    if source.exists():
+                        source.unlink()
+                mark_batch_archived_deleted(session, batch_id=batch.id)
+                cleaned_batches += 1
+
+            if updated_markers or cleaned_batches:
+                session.commit()
+                LOGGER.info(
+                    "Archive maintenance complete: marked_removed=%d cleaned_batches=%d",
+                    updated_markers,
+                    cleaned_batches,
+                )
+            else:
+                session.rollback()
