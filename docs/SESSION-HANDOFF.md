@@ -154,6 +154,6 @@ curl -sS -H "Authorization: Bearer ${TOKEN}" "http://127.0.0.1:8000/api/yandex/a
    - короткий статус проверки восстановления.
 
 Текущий статус:
-- git checkpoint зафиксирован: commit `eeb4116`, tag `pre-audit-20260524-1622`, push выполнен;
+- git checkpoint зафиксирован: commit `50c5361`, tag `pre-audit-20260524-1625`, push выполнен;
 - локальный `git bundle` создан: `backups/checkpoints/20260524_162209/pre-audit.bundle`;
 - VPS backup pending из-за нестабильного SSH-канала (перезапустить команду из `docs/deploy-notes.md` при стабильном доступе).
