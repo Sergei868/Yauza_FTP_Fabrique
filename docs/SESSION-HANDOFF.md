@@ -153,4 +153,7 @@ curl -sS -H "Authorization: Bearer ${TOKEN}" "http://127.0.0.1:8000/api/yandex/a
    - commit/tag SHA,
    - короткий статус проверки восстановления.
 
-Текущий статус: шаблон checkpoint-а и команда готовы, исполнение на VPS ожидает стабильного SSH-окна.
+Текущий статус:
+- git checkpoint зафиксирован: commit `eeb4116`, tag `pre-audit-20260524-1622`, push выполнен;
+- локальный `git bundle` создан: `backups/checkpoints/20260524_162209/pre-audit.bundle`;
+- VPS backup pending из-за нестабильного SSH-канала (перезапустить команду из `docs/deploy-notes.md` при стабильном доступе).

@@ -1030,6 +1030,13 @@ sudo sha256sum "$CHECKPOINT_DIR/config.yaml" "$CHECKPOINT_DIR/yauza-api.service"
 
 ### Current status
 
-- Checkpoint flow prepared and documented.
-- Remote execution from IDE shell is currently blocked by intermittent SSH timeout (`138.16.224.55:22`).
-- Next action when SSH is stable: run the command above and record resulting `CHECKPOINT_DIR` path here.
+- Git checkpoint completed:
+  - branch: `feature/bild-ui-ux-phase-1`
+  - commit: `eeb4116`
+  - tag: `pre-audit-20260524-1622`
+  - pushed to `origin` (branch + tag).
+- Local offline restore artifact completed:
+  - `backups/checkpoints/20260524_162209/pre-audit.bundle`
+- VPS backup run from IDE shell is pending:
+  - two attempts failed due SSH connectivity (`banner exchange timeout` / `connection closed`).
+  - next step: execute "Runtime backup command (VPS)" directly from local terminal when SSH to `138.16.224.55` is stable.
