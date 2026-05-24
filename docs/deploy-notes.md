@@ -1032,8 +1032,8 @@ sudo sha256sum "$CHECKPOINT_DIR/config.yaml" "$CHECKPOINT_DIR/yauza-api.service"
 
 - Git checkpoint completed:
   - branch: `feature/bild-ui-ux-phase-1`
-  - commit: `50c5361`
-  - tag: `pre-audit-20260524-1625`
+  - commit: `74a4c90`
+  - tag: `pre-audit-20260524-1630`
   - pushed to `origin` (branch + tag).
 - Local offline restore artifact completed:
   - `backups/checkpoints/20260524_162209/pre-audit.bundle`
