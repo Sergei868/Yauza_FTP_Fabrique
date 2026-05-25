@@ -15,6 +15,7 @@ const state = {
   archiveModal: null,
   adminSecretsHideTimer: null,
 };
+const RAW_EXTENSIONS = new Set([".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".rw2", ".orf", ".pef"]);
 
 const statusEl = document.getElementById("status");
 const metaEl = document.getElementById("meta");
@@ -252,7 +253,9 @@ async function hydrateArchivePreviews(batches) {
         continue;
       }
       row.innerHTML = firstPhotos.map((photo) => (
-        `<img class="archive-preview-item" data-archive-preview-photo="${esc(photo.id)}" alt="${esc(photo.filename)}" title="${esc(photo.filename)}" />`
+        isRawFilename(photo.filename)
+          ? `<div class="archive-preview-item archive-preview-raw" title="${esc(photo.filename)}">RAW</div>`
+          : `<img class="archive-preview-item" data-archive-preview-photo="${esc(photo.id)}" alt="${esc(photo.filename)}" title="${esc(photo.filename)}" />`
       )).join("");
       const imgTargets = [...row.querySelectorAll("img[data-archive-preview-photo]")];
       for (const imgEl of imgTargets) {
@@ -481,6 +484,13 @@ function esc(text) {
     .replaceAll(">", "&gt;");
 }
 
+function isRawFilename(filename) {
+  const value = String(filename || "");
+  const dotIndex = value.lastIndexOf(".");
+  if (dotIndex < 0) return false;
+  return RAW_EXTENSIONS.has(value.slice(dotIndex).toLowerCase());
+}
+
 function formatBatchMeta(batch) {
   const captured = new Date(batch.captured_at);
   const dateParts = new Intl.DateTimeFormat("ru-RU", {
@@ -520,28 +530,33 @@ function isActionRunning(action, batchId) {
 function renderBatchGallery(batch, detail) {
   const images = detail.photos
     .map(
-      (photo, index) => `<div class="thumb-item">
-        <label class="thumb-select" title="Выбрать фото">
-          <input type="checkbox"
-            data-photo-checkbox="1"
+      (photo, index) => {
+        const mediaMarkup = isRawFilename(photo.filename)
+          ? `<div class="thumb-raw" title="${esc(photo.filename)}">RAW</div>`
+          : `<img
+              data-photo-id="${esc(photo.id)}"
+              data-auth-src="${esc(photo.thumbnail_url || photo.image_url)}"
+              alt="${esc(photo.filename)}"
+              loading="lazy"
+              title="${esc(photo.filename)}"
+            />`;
+        return `<div class="thumb-item">
+          <label class="thumb-select" title="Выбрать фото">
+            <input type="checkbox"
+              data-photo-checkbox="1"
+              data-batch-id="${esc(batch.id)}"
+              data-photo-id="${esc(photo.id)}" />
+          </label>
+          <button class="thumb-btn" type="button"
+            data-action="open-image"
             data-batch-id="${esc(batch.id)}"
-            data-photo-id="${esc(photo.id)}" />
-        </label>
-        <button class="thumb-btn" type="button"
-          data-action="open-image"
-          data-batch-id="${esc(batch.id)}"
-          data-photo-index="${index}"
-          data-photo-id="${esc(photo.id)}"
-          data-original-src="${esc(photo.image_url)}"
-          data-filename="${esc(photo.filename)}"
-        ><img
-          data-photo-id="${esc(photo.id)}"
-          data-auth-src="${esc(photo.thumbnail_url || photo.image_url)}"
-          alt="${esc(photo.filename)}"
-          loading="lazy"
-          title="${esc(photo.filename)}"
-        /></button>
-      </div>`,
+            data-photo-index="${index}"
+            data-photo-id="${esc(photo.id)}"
+            data-original-src="${esc(photo.image_url)}"
+            data-filename="${esc(photo.filename)}"
+          >${mediaMarkup}</button>
+        </div>`;
+      },
     )
     .join("");
   const downloadAllBusy = isActionRunning("download-all", batch.id);
@@ -559,7 +574,7 @@ function renderBatchGallery(batch, detail) {
         <button data-action="download-all" data-batch-id="${batch.id}" ${downloadAllBusy ? "disabled" : ""}>${downloadAllBusy ? "Скачивание..." : "Скачать все"}</button>
         <button data-action="download-selected" data-batch-id="${batch.id}" ${downloadSelectedBusy ? "disabled" : ""}>${downloadSelectedBusy ? "Скачивание..." : "Скачать выбранное"}</button>
       </div>
-      <div class="gallery">${images || '<span class="muted">В пачке нет валидных JPEG</span>'}</div>
+      <div class="gallery">${images || '<span class="muted">В пачке нет поддерживаемых файлов</span>'}</div>
     </div>
   `;
 }
@@ -673,6 +688,15 @@ async function openLightbox(photoId, originalSrc, filename) {
   refs.image.alt = filename || "Оригинал";
   refs.root.classList.add("active");
   refs.root.setAttribute("aria-hidden", "false");
+  if (isRawFilename(filename)) {
+    setStatus("RAW-файл: предпросмотр недоступен, используйте кнопку «Скачать файл»");
+    state.lightbox = {
+      photos: [{ photoId, originalSrc, filename }],
+      index: 0,
+    };
+    updateLightboxControls();
+    return;
+  }
   const objectUrl = await fetchBlobObjectUrl(originalSrc, state.originalObjectUrls, photoId);
   refs.image.src = objectUrl;
   state.lightbox = {
@@ -703,6 +727,11 @@ async function openLightboxAt(photos, index) {
   refs.root.setAttribute("aria-hidden", "false");
   state.lightbox = { photos, index: safeIndex };
   updateLightboxControls();
+  if (isRawFilename(current.filename)) {
+    refs.image.alt = `RAW: ${current.filename}`;
+    setStatus("RAW-файл: предпросмотр недоступен, используйте кнопку «Скачать файл»");
+    return;
+  }
   const objectUrl = await fetchBlobObjectUrl(current.originalSrc, state.originalObjectUrls, current.photoId);
   refs.image.src = objectUrl;
 }
@@ -1092,7 +1121,9 @@ async function openArchiveModal(batchId) {
           data-action="archive-open-photo"
           data-archive-index="${index}"
           title="${esc(photo.filename)}">
-          <img data-archive-modal-photo-id="${esc(photo.id)}" alt="${esc(photo.filename)}" />
+          ${isRawFilename(photo.filename)
+            ? '<div class="thumb-raw">RAW</div>'
+            : `<img data-archive-modal-photo-id="${esc(photo.id)}" alt="${esc(photo.filename)}" />`}
         </button>
       </div>
     `).join("");

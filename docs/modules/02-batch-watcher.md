@@ -8,12 +8,13 @@
 - Читает `config.yaml` (или `config.example.yaml` для локального прогона).
 - Каждые `batch.poll_seconds` проверяет `incoming/*`.
 - Если в подпапке фотографа тишина дольше `batch.silence_seconds`:
-  - копирует валидные JPEG в `originals/<event>/<session>/<photographer>/<batch_id>/` (без удаления из `incoming`);
+  - копирует поддерживаемые файлы (JPEG + RAW из `batch.allowed_extensions`) в `originals/<event>/<session>/<photographer>/<batch_id>/` (без удаления из `incoming`);
   - при включённом флаге backup дополнительно пишет в `backup/<photographer>/<batch_id>/`;
   - создаёт `batch-manifest.json` с базовой метаинформацией.
-- Проверяет JPEG-сигнатуру (SOI/EOI):
+- Проверяет JPEG-сигнатуру (SOI/EOI) только для JPEG:
   - валидные JPEG идут в пачку;
-  - "битые" JPEG считаются в `broken_files_count` и не попадают в галерею пакета.
+  - "битые" JPEG считаются в `broken_files_count` и не попадают в пакет.
+- RAW-файлы из `allowed_extensions` добавляются в пакет без JPEG-сигнатурной проверки.
 - Пишет в БД:
   - `batches` (включая `broken_files_count`)
   - `photos`

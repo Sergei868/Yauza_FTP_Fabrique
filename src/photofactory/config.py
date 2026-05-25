@@ -142,7 +142,12 @@ def load_config(path: str | Path) -> AppConfig:
     )
     batch_config = BatchConfig(
         silence_seconds=int(batch.get("silence_seconds", 60)),
-        allowed_extensions=_normalize_extensions(batch.get("allowed_extensions", [".jpg", ".jpeg"])),
+        allowed_extensions=_normalize_extensions(
+            batch.get(
+                "allowed_extensions",
+                [".jpg", ".jpeg", ".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".rw2", ".orf", ".pef"],
+            )
+        ),
         poll_seconds=int(batch.get("poll_seconds", 5)),
         write_backup_copy=bool(batch.get("write_backup_copy", True)),
     )

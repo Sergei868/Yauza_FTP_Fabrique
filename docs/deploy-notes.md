@@ -1199,3 +1199,115 @@ sudo sha256sum "$CHECKPOINT_DIR/config.yaml" "$CHECKPOINT_DIR/yauza-api.service"
   - API has `include_photos` switch and `BatchListPhotoItem`,
   - frontend calls `/api/batches?limit=50&include_photos=true`,
   - HTML serves JS marker `v=20260524-1802`.
+
+## 2026-05-25 — RAW ingest support (without previews)
+
+### Changes deployed in codebase
+
+- Watcher ingest logic updated:
+  - RAW files from `batch.allowed_extensions` are accepted into batch flow.
+  - JPEG signature validation remains strict only for `.jpg/.jpeg`.
+  - Broken counter semantics unchanged for invalid JPEG files.
+- Bild UI updated:
+  - JPEG still renders previews.
+  - RAW files render as `RAW` placeholder tile in package and archive views.
+  - Opening RAW in lightbox shows a clear message that preview is unavailable; download action remains available.
+- Config defaults/example expanded:
+  - added common RAW extensions to `batch.allowed_extensions` defaults and `config.example.yaml`.
+- Documentation updated:
+  - `docs/modules/02-batch-watcher.md`
+  - `docs/modules/04-api-web.md`
+  - `docs/modules/06-yandex-disk.md`
+
+### Notes for runtime
+
+- Existing `/etc/yauza/config.yaml` should include RAW extensions in `batch.allowed_extensions` for production intake.
+- Service restart required after config update:
+  - `yauza-watcher` (required),
+  - `yauza-api` (recommended for consistent static/UI refresh).
+
+## 2026-05-24/25 — New VPS `work2` migration stabilization (GO for battle testing)
+
+### Final target
+
+- Prepare `work2.yauzamedia.ru` as a battle-test clone:
+  - camera FTP intake,
+  - batch finalize in dashboard,
+  - PWA notifications,
+  - Yandex.Disk auto-upload,
+  - keep old VPS for ongoing feature development.
+
+### What failed during migration and how it was fixed
+
+1. API/Watcher startup instability and old error noise in journal:
+   - `systemctl is-active` could show `active` while service still restarted earlier.
+   - Resolved by checking only fresh logs/windows and validating `curl http://127.0.0.1:8000/health`.
+
+2. FTP apply flow failed (`sudo: a password is required`):
+   - Root cause: service-side apply action required privileged operations without non-interactive sudo path.
+   - Migration workaround was to apply/fix `vsftpd` runtime directly on server and continue bring-up.
+
+3. `POST /api/admin/apply-ftp` failed with:
+   - `FileNotFoundError: /etc/vsftpd.conf`
+   - Root cause: `vsftpd` package/config absent on new VPS.
+   - Fix: install `vsftpd`, create baseline `/etc/vsftpd.conf`, ensure service enabled/running.
+
+4. Camera login reached server but transfer failed:
+   - tcpdump showed: login success (`230`) then `500 OOPS: invalid pasv_address`.
+   - Root cause: invalid `pasv_address` value in `vsftpd.conf`.
+   - Fix:
+     - `pasv_address=157.22.175.85`
+     - `pasv_addr_resolve=NO`
+     - keep passive range `40000-40050`.
+
+5. Watcher restart-loop with permission errors:
+   - `PermissionError: /srv/yauza/originals/default/unnamed/<photographer>`
+   - Root cause: write permissions/ownership on `originals` path.
+   - Fix: grant `photoflow` write access recursively to `/srv/yauza/originals` and verify no traceback in fresh watcher logs.
+
+6. Yandex auto-upload did not run despite camera batches:
+   - Root cause: runtime key `yandex_disk.auto_upload_all` was disabled/missing in DB.
+   - Fix:
+     - upsert `app_settings('yandex_disk.auto_upload_all') = 'true'` with `updated_at=now()`,
+     - verify runtime override keys for token/path are `[set]`.
+
+7. New VPS code drifted behind audit/performance changes:
+   - VPS branch head was `306654a` (pre-audit behavior in admin settings UI).
+   - Updated to `a936c39` (`Harden admin secret handling and improve high-flow performance`).
+   - Important: run git operations as `photoflow` user (root hits Git dubious ownership protection).
+
+8. Alembic command failed on VPS (`config.yaml` not found):
+   - Root cause: migration runner expects `PHOTOFACTORY_CONFIG`.
+   - Fix:
+     - `PHOTOFACTORY_CONFIG=/etc/yauza/config.yaml alembic upgrade head`
+     - then restart `yauza-api` and `yauza-watcher`.
+
+### Final verification (passed)
+
+- Services:
+  - `yauza-api`: active
+  - `yauza-watcher`: active
+  - `vsftpd`: active
+- Local health:
+  - `curl http://127.0.0.1:8000/health` -> `{"status":"ok"}`
+- Watcher (fresh logs):
+  - no `PermissionError`/`Traceback` warnings in recent window.
+  - batch finalize lines present.
+- Notifications:
+  - `PWA push result sent=... failed=0`.
+- Yandex.Disk auto-upload:
+  - create/check mirror dir requests (`200/201/409` expected),
+  - upload URL and file upload requests (`200/201`),
+  - watcher line:
+    - `Yandex auto-upload complete: dir=/Yauza_FTP_Mirror/<photographer> files=<n>`.
+
+### Operational notes for next restart/recovery
+
+- Run git/pip/alembic on VPS as `photoflow`:
+  - `sudo -u photoflow -H bash -lc '...'`
+- Always export config path for alembic:
+  - `PHOTOFACTORY_CONFIG=/etc/yauza/config.yaml`
+- For FTP regressions, first validate passive address/range in `/etc/vsftpd.conf`:
+  - `pasv_address=157.22.175.85`
+  - `pasv_addr_resolve=NO`
+  - `pasv_min_port=40000`, `pasv_max_port=40050`

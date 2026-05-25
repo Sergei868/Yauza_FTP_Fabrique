@@ -13,11 +13,11 @@
   - `GET /api/yandex/auto-upload`
   - `POST /api/yandex/auto-upload`
   - состояние хранится в таблице `app_settings` (`yandex_disk.auto_upload_all`).
-- Watcher после фиксации пачки проверяет авто-режим и, если включен, копирует JPEG-файлы пачки на Я.Диск.
+- Watcher после фиксации пачки проверяет авто-режим и, если включен, копирует файлы пачки (JPEG/RAW) на Я.Диск.
 - Структура на Я.Диске (зеркало `incoming`):
-  - `<remote_base_path>/<photographer>/<filename>.jpg`
+  - `<remote_base_path>/<photographer>/<filename>`
 - Для бильдов "по-старинке" структура папок на Я.Диске совпадает с FTP-логикой:
-  - `incoming/<photographer>/<filename>.jpg` <=> `<remote_base_path>/<photographer>/<filename>.jpg`
+  - `incoming/<photographer>/<filename>` <=> `<remote_base_path>/<photographer>/<filename>`
 
 ## Конфиг
 

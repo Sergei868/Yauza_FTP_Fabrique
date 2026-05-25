@@ -27,6 +27,15 @@ batch:
   allowed_extensions:
     - .jpg
     - .jpeg
+    - .cr2
+    - .cr3
+    - .nef
+    - .arw
+    - .dng
+    - .raf
+    - .rw2
+    - .orf
+    - .pef
   # Дедупликация: skip | overwrite (уточняется в watcher)
   duplicate_policy: skip
 

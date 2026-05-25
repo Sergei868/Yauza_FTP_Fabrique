@@ -35,6 +35,7 @@ from photofactory.storage.yandex_disk import YandexDiskUploader
 LOGGER = logging.getLogger(__name__)
 SETTING_YADISK_OAUTH_TOKEN = "yandex_disk.oauth_token.override"
 SETTING_YADISK_REMOTE_BASE = "yandex_disk.remote_base_path.override"
+JPEG_EXTENSIONS = {".jpg", ".jpeg"}
 
 
 @dataclass(frozen=True)
@@ -146,7 +147,7 @@ class BatchWatcher:
             if not source.exists():
                 LOGGER.warning("Skip disappeared file: %s", source)
                 continue
-            if not self._is_likely_jpeg(source):
+            if not self._is_supported_file(source):
                 broken_files_count += 1
                 continue
 
@@ -244,10 +245,11 @@ class BatchWatcher:
             index += 1
         return candidate
 
-    @staticmethod
-    def _is_likely_jpeg(path: Path) -> bool:
-        if path.suffix.lower() not in (".jpg", ".jpeg"):
-            return False
+    def _is_supported_file(self, path: Path) -> bool:
+        # RAW and other explicitly allowed formats are accepted as-is.
+        # Strict signature validation is applied only to JPEG files.
+        if path.suffix.lower() not in JPEG_EXTENSIONS:
+            return True
         try:
             with path.open("rb") as file_handle:
                 head = file_handle.read(2)
